@@ -9,16 +9,33 @@
 {% do site_groups.update({
     "gravity_wave_spice_developer": [
         "gravity_wave_default-C24_spice_intel_fast-debug-64bit",
+        "gravity_wave_default-C24_spice_intel_full-debug-64bit",
+        "gravity_wave_default-C24_spice_gnu_fast-debug-64bit",
+        "gravity_wave_default-C24_spice_gnu_full-debug-64bit",
+        "gravity_wave_multigrid-C24_MG_spice_intel_fast-debug-64bit",
+        "gravity_wave_limited_300x4-BiP300x4-1000x2000_spice_intel_fast-debug-64bit",
+        "gravity_wave_limited_spherical_50x50_LAM50x50-2x2_spice_intel_fast-debug-64bit",
+        "gravity_wave_limited_c24-C24_spice_intel_fast-debug-64bit",
+        "gravity_wave_limited_c24_rec-C24_spice_intel_fast-debug-64bit",
         "gravity_wave_spice_unit_tests",
+        "gravity_wave_spice_canned",
     ],
     "gravity_wave_spice": [
         "gravity_wave_spice_developer",
     ],
     "gravity_wave_spice_unit_tests": [
         "gravity_wave_unit_tests_spice_intel_64bit",
+        "gravity_wave_unit_tests_spice_gnu_64bit",
+    ],
+    "gravity_wave_spice_canned": [
+        "gravity_wave_canned_spice_intel_fast-debug-64bit",
+        "gravity_wave_canned_spice_gnu_fast-debug-64bit",
     ],
     "gravity_wave_spice_build": [
         "build_gravity_wave_spice_intel_fast-debug-64bit",
+        "build_gravity_wave_spice_intel_full-debug-64bit",
+        "build_gravity_wave_spice_gnu_fast-debug-64bit",
+        "build_gravity_wave_spice_gnu_full-debug-64bit",
     ],
     }) %}
 
@@ -26,13 +43,22 @@
 {% do site_groups.update({
     "gravity_wave_xc40_developer": [
         "gravity_wave_default-C24_xc40_intel_fast-debug-64bit",
+        "gravity_wave_multigrid-C24_MG_xc40_intel_fast-debug-64bit",
+        "gravity_wave_limited_300x4-BiP300x4-1000x2000_xc40_intel_fast-debug-64bit",
+        "gravity_wave_limited_spherical_50x50_LAM50x50-2x2_xc40_intel_fast-debug-64bit",
+        "gravity_wave_limited_c24-C24_xc40_intel_fast-debug-64bit",
+        "gravity_wave_limited_c24_rec-C24_xc40_intel_fast-debug-64bit",
         "gravity_wave_xc40_unit_tests",
+        "gravity_wave_xc40_canned",
     ],
     "gravity_wave_xc40": [
         "gravity_wave_xc40_developer",
     ],
     "gravity_wave_xc40_unit_tests": [
         "gravity_wave_unit_tests_xc40_intel_64bit",
+    ],
+    "gravity_wave_xc40_canned": [
+        "gravity_wave_canned_xc40_intel_fast-debug-64bit",
     ],
     "gravity_wave_xc40_build": [
         "build_gravity_wave_xc40_intel_fast-debug-64bit",
@@ -59,6 +85,10 @@
     "gravity_wave_build": [
         "gravity_wave_spice_build",
         "gravity_wave_xc40_build",
+    ],
+    "gravity_wave_canned": [
+        "gravity_wave_spice_canned",
+        "gravity_wave_xc40_canned",
     ],
     }) %}
 
