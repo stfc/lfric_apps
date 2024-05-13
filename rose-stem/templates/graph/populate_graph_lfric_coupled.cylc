@@ -57,11 +57,13 @@
     {% do tasks_to_run.update({build2_ocean_task: task_values}) %}
 {% endif %}
 
-
 {# ################ #}
 {# Create the Graph #}
 {# ################ #}
 
+{% do graph_sections.append([
+    remote_init_task~task_ns.platform, "fcm_make_drivers"
+    ]) %}
 {% do graph_sections.append([
     "fcm_make_drivers", "fcm_make2_drivers"
     ]) %}
@@ -69,10 +71,16 @@
     "fcm_make2_drivers", application_run_task
     ]) %}
 {% do graph_sections.append([
+    remote_init_task~task_ns.platform, build_ocean_task
+    ]) %}
+{% do graph_sections.append([
     build_ocean_task, build2_ocean_task
     ]) %}
 {% do graph_sections.append([
     build2_ocean_task, application_run_task
+    ]) %}
+{% do graph_sections.append([
+    remote_init_task~task_ns.platform, build_river_task
     ]) %}
 {% do graph_sections.append([
     build_river_task, application_run_task

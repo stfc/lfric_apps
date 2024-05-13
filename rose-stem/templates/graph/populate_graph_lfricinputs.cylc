@@ -180,6 +180,9 @@
 {% endif %}
 
 {% do graph_sections.append([
+    remote_init_task~task_ns.platform, build_task
+    ]) %}
+{% do graph_sections.append([
     build_task, configurate_task
     ]) %}
 {% do graph_sections.append([

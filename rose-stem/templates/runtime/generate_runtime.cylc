@@ -10,7 +10,9 @@
 
 {% set task_values = tasks_to_run[task] %}
 
-{% if task.startswith("export-") or task.startswith("housekeep") %}
+{% if task.startswith("export-") or
+      task.startswith("housekeep") or
+      task.startswith("remote-init") %}
 
     {% include "templates/runtime/generate_runtime_control.cylc" %}
 

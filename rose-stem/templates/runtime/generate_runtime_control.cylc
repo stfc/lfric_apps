@@ -80,7 +80,6 @@
 
     {% endif %}
 
-
 {% elif task.startswith("housekeep") %}
 
     {% set platform = task.split('_')[1] %}
@@ -88,6 +87,15 @@
     [[{{task}}]]
         inherit = HOUSEKEEPING, {{platform|upper}}_HOUSEKEEPING
         script = rose task-run --app-key=housekeeping
+
+{% elif task.startswith("remote-init") %}
+
+    {% set platform = task.split('_')[1] %}
+
+    [[{{task}}]]
+        inherit = EXPORT-SOURCE, {{platform|upper}}_BASE
+        script = true
+        execution time limit = PT1M
 
 {% endif %}
 

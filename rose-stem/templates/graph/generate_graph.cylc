@@ -8,6 +8,22 @@
 {# Generate the graph based on the requested tasks #}
 
 {% set graph_sections = [] %}
+
+{# Cylc can sometimes fail to setup symlinks properly on remote platforms #}
+{# See the Warning Box at #}
+{# https://cylc.github.io/cylc-doc/nightly_8.3/html/7-to-8/major-changes/cylc-install.html#admonition-5 #}
+{# The solution is to run a "dummy" task on that platform first #}
+{# Set the export-source task to depend on these tasks, 1 per platform #}
+{# Some fcm_make tasks for lfricinputs and coupled have this set in their files #}
+{% set remote_init_task = "remote-init_" %}
+{% for platform in requested_platforms %}
+    {% do tasks_to_run.update({remote_init_task~platform: {} }) %}
+    {% do graph_sections.append([
+        "remote-init_"~platform,
+        "export-source",
+    ]) %}
+{% endfor %}
+
 {% for task in requested_tasks %}
     {% do LOG.debug("Task: "~task) %}
     {% if task in scripts_list %}

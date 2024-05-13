@@ -88,6 +88,7 @@
 {% set tasks_to_run_list = tasks_to_run.keys() %}
 {% for task in tasks_to_run_list %}
     {% if not task.startswith("export-") and
+            not task.startswith("remote-init") and
             not task.startswith("housekeep") and
             not tasks_to_run[task] %}
         {% set task_dict = {} %}

@@ -55,6 +55,7 @@
     {# * validate_rose_meta #}
     {# * global_variables_checker #}
     {# * python_unit_tests #}
+    {# * local_build_test #}
 
     {% do graph_sections.append([
         export_task,
