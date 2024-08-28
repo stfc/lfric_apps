@@ -26,13 +26,17 @@ module field_stats_kernel_mod
   !>
   type, public, extends(kernel_type) :: field_stats_kernel_type
     private
-    type(arg_type) :: meta_args(16) = (/                                   &
+    type(arg_type) :: meta_args(20) = (/                                   &
          arg_type(GH_FIELD, GH_REAL, GH_READ, ANY_DISCONTINUOUS_SPACE_1),  &
          arg_type(GH_FIELD, GH_REAL, GH_READ, ANY_DISCONTINUOUS_SPACE_1),  &
          arg_type(GH_SCALAR,GH_REAL, GH_READ),                             &
          arg_type(GH_SCALAR,GH_REAL, GH_READ),                             &
+         arg_type(GH_SCALAR,GH_REAL, GH_READ),                             &
+         arg_type(GH_SCALAR,GH_REAL, GH_READ),                             &
          arg_type(GH_FIELD, GH_REAL, GH_READ,  ANY_DISCONTINUOUS_SPACE_2), &
          arg_type(GH_FIELD, GH_REAL, GH_READ,  ANY_DISCONTINUOUS_SPACE_2), &
+         arg_type(GH_FIELD, GH_REAL, GH_WRITE, ANY_DISCONTINUOUS_SPACE_2), &
+         arg_type(GH_FIELD, GH_REAL, GH_WRITE, ANY_DISCONTINUOUS_SPACE_2), &
          arg_type(GH_FIELD, GH_REAL, GH_WRITE, ANY_DISCONTINUOUS_SPACE_2), &
          arg_type(GH_FIELD, GH_REAL, GH_WRITE, ANY_DISCONTINUOUS_SPACE_2), &
          arg_type(GH_FIELD, GH_REAL, GH_WRITE, ANY_DISCONTINUOUS_SPACE_2), &
@@ -65,10 +69,14 @@ contains
 !> @param[in]     height     height of field above sphere
 !> @param[in]     fmax       maximum value of the field
 !> @param[in]     fmin       minimum value of the field
+!> @param[in]     fmax_excess threshold above which to count values of the field
+!> @param[in]     fmin_excess threshold above which to count values of the field
 !> @param[in]     latitude   latitude of field
 !> @param[in]     longitude  longitude of field
 !> @param[in,out] max_lev    level of maximum value
 !> @param[in,out] min_lev    level of minimum value
+!> @param[in,out] max_excess_count  num of times the upper threshold is exceeded
+!> @param[in,out] min_excess_count  num of times the lower threshold is exceeded
 !> @param[in,out] max_count  number of times the maximum occurs
 !> @param[in,out] min_count  number of times the minimum occurs
 !> @param[in,out] max_lat    latitude of maximum value
@@ -83,17 +91,19 @@ contains
 !> @param[in]     ndf_2d     The number of dofs per cell for 2d field
 !> @param[in]     undf_2d    The number of unique dofs for 2d field
 !> @param[in]     map_2d     array holding the dofmap for 2d field
-subroutine field_stats_code(nlayers,                    &
-                            field, height,              &
-                            fmax, fmin,                 &
-                            latitude, longitude,        &
-                            max_lev, min_lev,           &
-                            max_count, min_count,       &
-                            max_lat, min_lat,           &
-                            max_lon, min_lon,           &
-                            max_height, min_height,     &
-                            ndf_3d, undf_3d, map_3d,    &
-                            ndf_2d, undf_2d, map_2d     &
+subroutine field_stats_code(nlayers,                            &
+                            field, height,                      &
+                            fmax, fmin,                         &
+                            fmax_excess, fmin_excess,           &
+                            latitude, longitude,                &
+                            max_lev, min_lev,                   &
+                            max_excess_count, min_excess_count, &
+                            max_count, min_count,               &
+                            max_lat, min_lat,                   &
+                            max_lon, min_lon,                   &
+                            max_height, min_height,             &
+                            ndf_3d, undf_3d, map_3d,            &
+                            ndf_2d, undf_2d, map_2d             &
                             )
 
   implicit none
@@ -104,11 +114,13 @@ subroutine field_stats_code(nlayers,                    &
   integer(kind=i_def), intent(in) :: ndf_3d, undf_3d
   integer(kind=i_def), intent(in) :: ndf_2d, undf_2d
 
-  real(r_def), intent(in) :: fmax, fmin
+  real(r_def), intent(in) :: fmax, fmin, fmax_excess, fmin_excess
   real(kind=r_def), dimension(undf_3d), intent(in) :: field, height
   real(kind=r_def), dimension(undf_2d), intent(in) :: latitude, longitude
   real(kind=r_def), dimension(undf_2d), intent(inout) :: max_lev, min_lev
   real(kind=r_def), dimension(undf_2d), intent(inout) :: max_count, min_count
+  real(kind=r_def), dimension(undf_2d), intent(inout) :: max_excess_count
+  real(kind=r_def), dimension(undf_2d), intent(inout) :: min_excess_count
   real(kind=r_def), dimension(undf_2d), intent(inout) :: max_lat, min_lat
   real(kind=r_def), dimension(undf_2d), intent(inout) :: max_lon, min_lon
   real(kind=r_def), dimension(undf_2d), intent(inout) :: max_height, min_height
@@ -116,40 +128,66 @@ subroutine field_stats_code(nlayers,                    &
   integer(kind=i_def), dimension(ndf_2d),  intent(in) :: map_2d
 
   ! Internal variables
-  integer(kind=i_def) :: k
+  integer(kind=i_def) :: df, k, k_max, df_max
 
-  ! We loop to nlayers+ndf_3d-2 to ensure that the kernel works correctly for
-  ! both w3 and wtheta fields, i.e. we need to loop to nlayers for wtheta
-  ! fields (ndf_3d=2), and nlayers-1 for w3 fields (ndf_3d=1)
-  do k = 0, nlayers+ndf_3d-2
+  if (ndf_3d == 4) then
+    df_max = 4
+  else
+    df_max = 1
+  end if
 
-    if (field(map_3d(1) + k) >= fmax) then
-      ! If the maximum is at this location, write its information
-      max_lev(map_2d(1))    = real(k, r_def)
-      max_count(map_2d(1))  = 1.0_r_def
-      max_lat(map_2d(1))    = latitude(map_2d(1))
-      max_lon(map_2d(1))    = longitude(map_2d(1))
-      max_height(map_2d(1)) = height(map_3d(1) + k)
-      exit
-    end if
+  if (ndf_3d == 2) then
+    k_max = nlayers
+  else
+    k_max = nlayers - 1
+  end if
 
+  ! Count number of points which exceed thresholds -----------------------------
+  do df = 1, df_max
+    max_excess_count(map_2d(df)) = 0.0_r_def
+    min_excess_count(map_2d(df)) = 0.0_r_def
+    do k = 0, k_max
+      if (field(map_3d(df) + k) >= fmax_excess) then
+        ! If the field exceeds the specified threshold, increment the counter
+        max_excess_count(map_2d(df)) = max_excess_count(map_2d(df)) + 1.0_r_def
+      end if
+
+      if (field(map_3d(df) + k) <= fmin_excess) then
+        ! If the field exceeds the specified threshold, increment the counter
+        min_excess_count(map_2d(df)) = min_excess_count(map_2d(df)) + 1.0_r_def
+      end if
+    end do
   end do
 
-  ! We loop to nlayers+ndf_3d-2 to ensure that the kernel works correctly for
-  ! both w3 and wtheta fields, i.e. we need to loop to nlayers for wtheta
-  ! fields (ndf_3d=2), and nlayers-1 for w3 fields (ndf_3d=1)
-  do k = 0, nlayers+ndf_3d-2
+  ! Search for location of global maximum --------------------------------------
+  do df = 1, df_max
+    do k = 0, k_max
 
-    if (field(map_3d(1) + k) <= fmin) then
-      ! If the minimum is at this location, write its information
-      min_lev(map_2d(1))    = real(k, r_def)
-      min_count(map_2d(1))  = 1.0_r_def
-      min_lat(map_2d(1))    = latitude(map_2d(1))
-      min_lon(map_2d(1))    = longitude(map_2d(1))
-      min_height(map_2d(1)) = height(map_3d(1) + k)
-      exit
-    end if
+      if (field(map_3d(df) + k) >= fmax) then
+        ! If the maximum is at this location, write its information
+        max_lev(map_2d(df))    = real(k, r_def)
+        max_lat(map_2d(df))    = latitude(map_2d(df))
+        max_lon(map_2d(df))    = longitude(map_2d(df))
+        max_height(map_2d(df)) = height(map_3d(df) + k)
+        max_count(map_2d(df)) = 1.0_r_def
+        exit
+      end if
+    end do
+  end do
 
+  ! Search for location of global minimum --------------------------------------
+  do df = 1, df_max
+    do k = 0, k_max
+      if (field(map_3d(df) + k) <= fmin) then
+        ! If the minimum is at this location, write its information
+        min_lev(map_2d(df))    = real(k, r_def)
+        min_lat(map_2d(df))    = latitude(map_2d(df))
+        min_lon(map_2d(df))    = longitude(map_2d(df))
+        min_height(map_2d(df)) = height(map_3d(df) + k)
+        min_count(map_2d(df)) = 1.0_r_def
+        exit
+      end if
+    end do
   end do
 
 end subroutine field_stats_code

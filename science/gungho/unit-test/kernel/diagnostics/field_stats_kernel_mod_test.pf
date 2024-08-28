@@ -46,10 +46,13 @@ contains
     real(kind=r_def),    dimension(undf_2d)    :: latitude, longitude,    &
                                                   max_lev, min_lev,       &
                                                   max_count, min_count,   &
+                                                  max_tcount, min_tcount, &
                                                   max_lat, min_lat,       &
                                                   max_lon, min_lon,       &
                                                   max_height, min_height, &
                                                   ans_max_lev, ans_min_lev,    &
+                                                  ans_max_tcount,              &
+                                                  ans_min_tcount,&
                                                   ans_max_count, ans_min_count,&
                                                   ans_max_lat, ans_min_lat,    &
                                                   ans_max_lon, ans_min_lon,    &
@@ -71,15 +74,16 @@ contains
         height(map_3d(1) + k) = real(k, r_def)+1.0_r_def
     end do
 
-    call field_stats_code( nlayers, field, height, fmax, fmin,       &
-                           latitude, longitude, max_lev, min_lev,    &
-                           max_count, min_count, max_lat, min_lat,   &
-                           max_lon, min_lon, max_height, min_height, &
-                           ndf, undf_3d, map_3d,                     &
-                           ndf, undf_2d, map_2d )
+    call field_stats_code( nlayers, field, height, fmax, fmin, fmax, fmin,     &
+                           latitude, longitude, max_lev, min_lev, max_tcount,  &
+                           min_tcount, max_count, min_count, max_lat, min_lat, &
+                           max_lon, min_lon, max_height, min_height,           &
+                           ndf, undf_3d, map_3d, ndf, undf_2d, map_2d )
 
     ans_max_lev = 2.0_r_def
     ans_min_lev = 0.0_r_def
+    ans_max_tcount = 1.0_r_def
+    ans_min_tcount = 1.0_r_def
     ans_max_count = 1.0_r_def
     ans_min_count = 1.0_r_def
     ans_max_lat = 10.0_r_def
@@ -90,6 +94,8 @@ contains
     ans_min_height = 1.0_r_def
     @assertEqual(ans_max_lev,max_lev,tol)
     @assertEqual(ans_min_lev,min_lev,tol)
+    @assertEqual(ans_max_tcount,max_tcount,tol)
+    @assertEqual(ans_min_tcount,min_tcount,tol)
     @assertEqual(ans_max_count,max_count,tol)
     @assertEqual(ans_min_count,min_count,tol)
     @assertEqual(ans_max_lat,max_lat,tol)

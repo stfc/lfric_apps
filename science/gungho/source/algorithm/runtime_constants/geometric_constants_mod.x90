@@ -75,12 +75,15 @@ module geometric_constants_mod
   type(inventory_by_mesh_type) :: dA_at_w2_inventory
   type(inventory_by_mesh_type) :: height_w1_inventory
   type(inventory_by_mesh_type) :: height_w2_inventory
+  type(inventory_by_mesh_type) :: height_w2h_inventory
   type(inventory_by_mesh_type) :: height_w3_inventory
   type(inventory_by_mesh_type) :: height_wth_inventory
   type(inventory_by_mesh_type) :: dz_w3_inventory
   type(inventory_by_mesh_type) :: lat_w3_inventory
   type(inventory_by_mesh_type) :: lat_w2_inventory
+  type(inventory_by_mesh_type) :: lat_w2h_inventory
   type(inventory_by_mesh_type) :: long_w3_inventory
+  type(inventory_by_mesh_type) :: long_w2h_inventory
   type(inventory_by_local_mesh_type) :: face_selector_ew_inventory
   type(inventory_by_local_mesh_type) :: face_selector_ns_inventory
   type(inventory_by_local_mesh_type) :: w3_to_w2_displacement_inventory
@@ -97,7 +100,9 @@ module geometric_constants_mod
   public :: get_dz_w3
   public :: get_latitude
   public :: get_latitude_w2
+  public :: get_latitude_w2h
   public :: get_longitude
+  public :: get_longitude_w2h
   public :: get_chi_inventory
   public :: get_panel_id_inventory
   public :: get_face_selector_ew
@@ -127,6 +132,7 @@ contains
     type(function_space_type), pointer :: wth_k0_fs => null() ! lowest order wth fs
     type(function_space_type), pointer :: w1_k0_fs  => null() ! lowest order w1 fs
     type(function_space_type), pointer :: w2_k0_fs  => null() ! lowest order w2 fs
+    type(function_space_type), pointer :: w2h_k0_fs  => null() ! lowest order w2h fs
     type(function_space_type), pointer :: w3_k0_fs  => null() ! lowest order w3 fs
     type(function_space_type), pointer :: wchi_fs  => null()
     type(function_space_type), pointer :: w2_2d_fs  => null() ! lowest order w2 fs
@@ -137,12 +143,15 @@ contains
     type(field_type), pointer :: extended_chi(:) => null()
     type(field_type), pointer :: height_w1 => null()
     type(field_type), pointer :: height_w2 => null()
+    type(field_type), pointer :: height_w2h => null()
     type(field_type), pointer :: height_w3 => null()
     type(field_type), pointer :: height_wth => null()
     type(field_type), pointer :: dz_w3 => null()
     type(field_type), pointer :: dA_at_w2 => null()
     type(field_type), pointer :: long_w3 => null()
     type(field_type), pointer :: lat_w3 => null()
+    type(field_type), pointer :: long_w2h => null()
+    type(field_type), pointer :: lat_w2h => null()
     type(field_type), pointer :: lat_w2 => null()
     type(field_type)          :: long_w2
     type(integer_field_type)  :: face_counter
@@ -163,12 +172,15 @@ contains
 
     call height_w1_inventory%initialise(name="height_w1", table_len=num_meshes)
     call height_w2_inventory%initialise(name="height_w2", table_len=num_meshes)
+    call height_w2h_inventory%initialise(name="height_w2h", table_len=num_meshes)
     call height_w3_inventory%initialise(name="height_w3", table_len=num_meshes)
     call height_wth_inventory%initialise(name="height_wth", table_len=num_meshes)
     call dz_w3_inventory%initialise(name="dz_w3", table_len=num_meshes)
     call dA_at_w2_inventory%initialise(name="dA_w2", table_len=num_meshes)
     call long_w3_inventory%initialise(name="lon_w3", table_len=num_meshes)
     call lat_w3_inventory%initialise(name="lat_w3", table_len=num_meshes)
+    call long_w2h_inventory%initialise(name="lon_w2h", table_len=num_meshes)
+    call lat_w2h_inventory%initialise(name="lat_w2h", table_len=num_meshes)
     call lat_w2_inventory%initialise(name="lat_w2", table_len=num_meshes)
     call face_selector_ew_inventory%initialise(name="face_selector_ew", table_len=num_meshes)
     call face_selector_ns_inventory%initialise(name="face_selector_ns", table_len=num_meshes)
@@ -186,6 +198,7 @@ contains
 
       w3_k0_fs => function_space_collection%get_fs( mesh, 0, W3 )
       w2_k0_fs  => function_space_collection%get_fs( mesh, 0, W2 )
+      w2h_k0_fs  => function_space_collection%get_fs( mesh, 0, W2H )
 
       ! Don't need most function spaces for 2D meshes
       if ( label_list(i) /= twod_mesh_label) then
@@ -243,6 +256,11 @@ contains
         call invoke( get_height_kernel_type( height_w2,          &
                                              chi_in(:,i),        &
                                              scaled_radius ) )
+
+        call height_w2h_inventory%add_field(height_w2h, w2h_k0_fs, mesh)
+        call invoke( get_height_kernel_type( height_w2h,          &
+                                             chi_in(:,i),        &
+                                             scaled_radius ) )
       end if
 
       ! ======================= Calculate dz for w3 ===========================!
@@ -283,6 +301,18 @@ contains
                                                    panel_id_in(i) )  )
         else
           call invoke( setval_c(lat_w2, f_lat) )
+        end if
+
+        w2h_2d_fs  => function_space_collection%get_fs( mesh, 0, W2H )
+        call lat_w2h_inventory%add_field(lat_w2h, w2h_2d_fs, twod_mesh)
+        call long_w2h_inventory%add_field(long_w2h, w2h_2d_fs, twod_mesh)
+        if ( geometry == geometry_spherical ) then
+          call invoke( compute_latlon_kernel_type( lat_w2h, long_w2h, &
+                                                   chi_in(:,i),       &
+                                                   panel_id_in(i) )  )
+        else
+          call invoke( setval_c(lat_w2h, f_lat), &
+                       setval_c(long_w2h, f_lon) )
         end if
 
         nullify(lat_w3, long_w3, lat_w2)
@@ -421,6 +451,8 @@ contains
       call height_w1_inventory%get_field(mesh, height)
     case (W2)
       call height_w2_inventory%get_field(mesh, height)
+    case (W2H)
+      call height_w2h_inventory%get_field(mesh, height)
     case (W3)
       call height_w3_inventory%get_field(mesh, height)
     case (Wtheta)
@@ -478,6 +510,36 @@ contains
     nullify(mesh)
 
   end function get_latitude_w2
+
+  !> @brief Returns a pointer to the longitude map
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return The longitude field array
+  function get_longitude_w2h(mesh_id) result(long_ptr)
+    implicit none
+    integer(kind=i_def), intent(in) :: mesh_id
+    type(mesh_type),        pointer :: mesh => null()
+    type(field_type),       pointer :: long_ptr
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    call long_w2h_inventory%get_field(mesh, long_ptr)
+    nullify(mesh)
+
+  end function get_longitude_w2h
+
+  !> @brief Returns a pointer to the latitude map on W2H space
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return The latitude field array
+  function get_latitude_w2h(mesh_id) result(lat_ptr)
+    implicit none
+    integer(kind=i_def), intent(in) :: mesh_id
+    type(mesh_type),        pointer :: mesh => null()
+    type(field_type),       pointer :: lat_ptr
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    call lat_w2h_inventory%get_field(mesh, lat_ptr)
+    nullify(mesh)
+
+  end function get_latitude_w2h
 
   !> @brief Returns a pointer to the east-west face selector
   !> @param[in] mesh_id The ID of the mesh to get the object for
@@ -610,6 +672,7 @@ contains
     call height_wth_inventory%clear()
     call height_w3_inventory%clear()
     call height_w2_inventory%clear()
+    call height_w2h_inventory%clear()
     call height_w1_inventory%clear()
     call dz_w3_inventory%clear()
     call panel_id_inventory%clear()
