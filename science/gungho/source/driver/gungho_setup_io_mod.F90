@@ -10,13 +10,14 @@
 !>
 module gungho_setup_io_mod
 
-  use constants_mod,             only: i_def, str_def, &
+  use constants_mod,             only: r_def, i_def, str_def, &
                                        str_max_filename
   use driver_modeldb_mod,        only: modeldb_type
   use file_mod,                  only: FILE_MODE_READ, &
                                        FILE_MODE_WRITE
   use lfric_xios_file_mod,       only: lfric_xios_file_type
   use linked_list_mod,           only: linked_list_type
+  use log_mod,                   only: log_event, log_level_error
   ! Configuration modules
   use files_config_mod,          only: ancil_directory,           &
                                        checkpoint_stem_name,      &
@@ -767,7 +768,12 @@ module gungho_setup_io_mod
     ! Setup checkpoint writing context information
     if ( checkpoint_write ) then
       ! Create checkpoint filename from stem and end timestep
-      write(checkpoint_write_fname,'(A,A,I6.6)') &
+      if( log10(real(ts_end)) >= 10.0_r_def )then
+        call log_event( &
+          "Number of timesteps too big to fit in checkpoint filename", &
+          log_level_error )
+      end if
+      write(checkpoint_write_fname,'(A,A,I10.10)') &
                            trim(checkpoint_stem_name),"_", ts_end
       call files_list%insert_item( lfric_xios_file_type( checkpoint_write_fname,           &
                                                          xios_id="lfric_checkpoint_write", &
@@ -779,7 +785,12 @@ module gungho_setup_io_mod
     ! Setup checkpoint reading context information
     if ( checkpoint_read ) then
       ! Create checkpoint filename from stem and (start - 1) timestep
-      write(checkpoint_read_fname,'(A,A,I6.6)') &
+      if( log10(real(ts_start)) >= 10.0_r_def )then
+        call log_event( &
+          "Number of timesteps too big to fit in checkpoint filename", &
+          log_level_error )
+      end if
+      write(checkpoint_read_fname,'(A,A,I10.10)') &
                    trim(checkpoint_stem_name),"_", (ts_start - 1)
       call files_list%insert_item( lfric_xios_file_type( checkpoint_read_fname,           &
                                                          xios_id="lfric_checkpoint_read", &
