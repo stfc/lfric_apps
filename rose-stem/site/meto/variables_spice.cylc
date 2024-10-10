@@ -59,6 +59,16 @@
     "lfricinputs_um2lfric-falklands_lam_spice_ifort-gcc_safe":                          BASE,
     "lfricinputs_um2lfric-falklands_lam_spice_ifort-gcc_rigorous":                      BASE,
 
+    "lfricinputs_um2lfric-nwp_gal9-N320L70_C12L70_spice_gfortran-gcc_safe": BASE~"_t329",
+    "lfricinputs_um2lfric-nwp_gal9-N320L70_C12L70_spice_gfortran-gcc_rigorous": BASE~"_t329",
+    "lfricinputs_um2lfric-nwp_gal9-N320L70_C12L70_spice_ifort-gcc_safe": BASE~"_t329",
+    "lfricinputs_um2lfric-nwp_gal9-N320L70_C12L70_spice_ifort-gcc_rigorous": BASE~"_t329",
+
+    "lfricinputs_um2lfric-nwp_gal9-N320L70_C48L70_spice_gfortran-gcc_safe": BASE~"_t329",
+    "lfricinputs_um2lfric-nwp_gal9-N320L70_C48L70_spice_gfortran-gcc_rigorous": BASE~"_t329",
+    "lfricinputs_um2lfric-nwp_gal9-N320L70_C48L70_spice_ifort-gcc_safe": BASE~"_t329",
+    "lfricinputs_um2lfric-nwp_gal9-N320L70_C48L70_spice_ifort-gcc_rigorous": BASE~"_t329",
+
 
     }) %}
 
