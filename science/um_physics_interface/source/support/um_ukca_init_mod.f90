@@ -1328,39 +1328,24 @@ contains
 
            ! General UKCA configuration options
            !
-           i_ukca_chem=ukca_chem_offline,                                      &
+           i_ukca_chem=ukca_chem_off,                                          &
            l_ukca_mode=.true.,                                                 &
            l_fix_tropopause_level=.true.,                                      &
            l_ukca_persist_off=.true.,                                          &
 
            ! Chemistry configuration options
            !
-           i_ukca_chem_version=111,                                            &
            chem_timestep=3600,                                                 &
-           nrsteps=1,                                                          &
-           l_ukca_asad_columns=.true.,                                         &
-           l_ukca_asad_full=.false.,                                           &
-           l_ukca_intdd=.false.,                                               &
-
-           ! UKCA emissions configuration options
-           !
-           mode_parfrac=2.5_r_um,                                              &
-           l_support_ems_vertprof=.true.,                                      &
 
            ! UKCA environmental driver configuration options
            !
            l_param_conv=l_param_conv,                                          &
-           l_ctile=.true.,                                                     &
 
            ! General GLOMAP configuration options
            !
            i_mode_nzts=15,                                                     &
            i_mode_setup=6,                                                     &
-           l_mode_bhn_on=.false.,                                              &
-           l_mode_bln_on=.false.,                                              &
            i_mode_nucscav=i_mode_nucscav,                                      &
-           mode_activation_dryr=37.5_r_um,                                     &
-           mode_incld_so2_rfrac=0.25_r_um,                                     &
            l_cv_rainout=.not.(l_ukca_plume_scav),                              &
            l_dust_slinn_impc_scav=.true.,                                      &
            l_dust_ageing_on=.false.,                                           &
@@ -1372,7 +1357,6 @@ contains
            ! GLOMAP feedback configuration options
            !
            l_ukca_radaer=.false.,                                              &
-           i_ukca_activation_scheme=ukca_activation_off,                       &
 
            ! Callback procedures
            !
