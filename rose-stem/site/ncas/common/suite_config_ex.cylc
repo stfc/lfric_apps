@@ -18,6 +18,7 @@
             HYPERTHREADS    = 1
             CORES_PER_NODE  = 128
             NUMA_REGIONS_PER_NODE = 8
+            LUSTRE_FILESYSTEM = true
 
     [[EX_SLURM]]
         inherit = EX_BASE
@@ -61,8 +62,13 @@
     [[EX_GNU]]
         pre-script = """
                      umask 0022
-                     source /work/n02/shared/lfric/spack/share/spack/setup-env.sh
-                     spack env activate lfric-meta-gcc
+                     module load other-software
+                     module load spack
+                     {# If using your own spack install remove the following 2 lines #}
+                     {# will then use /work/n02/n02/your_username/.spack as spack directory #}
+                     export SPACK_USER_CONFIG_PATH=/work/y07/shared/lfric/.spack
+                     export SPACK_USER_CACHE_PATH=/work/y07/shared/lfric/.spack
+                     spack load lfric-meta%gcc
                      module load PrgEnv-gnu
                      """
         [[[environment]]]
