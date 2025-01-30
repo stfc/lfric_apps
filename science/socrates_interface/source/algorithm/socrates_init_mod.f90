@@ -39,6 +39,7 @@ real(r_def), allocatable, target :: &
 
 integer(i_def) :: i_scatter_method_lw, i_scatter_method_lwinc
 integer(i_def) :: i_cloud_representation, i_overlap, i_inhom, i_inhom_inc
+integer(i_def) :: i_cloud_entrapment
 integer(i_def) :: i_drop_re
 logical(l_def) :: l_orog
 
@@ -55,7 +56,8 @@ public :: socrates_init, &
   n_lwinc_band, lwinc_n_band_exclude, lwinc_index_exclude, &
   lwinc_wavelength_short, lwinc_wavelength_long, &
   i_scatter_method_lw, i_scatter_method_lwinc, &
-  i_cloud_representation, i_overlap, i_inhom, i_inhom_inc, i_drop_re, l_orog
+  i_cloud_representation, i_overlap, i_inhom, i_inhom_inc, &
+  i_cloud_entrapment, i_drop_re, l_orog
 
 contains
 
@@ -70,20 +72,25 @@ subroutine socrates_init()
     scatter_method_lwinc, &
     scatter_method_lwinc_full, scatter_method_lwinc_none, &
     scatter_method_lwinc_approx, scatter_method_lwinc_hybrid, &
-    cloud_representation, cloud_overlap, cloud_inhomogeneity, &
+    cloud_representation, &
     cloud_representation_no_cloud, &
     cloud_representation_liquid_and_ice, &
     cloud_representation_combined, &
     cloud_representation_conv_strat_liq_ice, &
     cloud_representation_split, &
+    cloud_overlap, &
     cloud_overlap_maximum_random, &
     cloud_overlap_random, &
     cloud_overlap_exponential_random, &
+    cloud_inhomogeneity, &
     cloud_inhomogeneity_homogeneous, &
     cloud_inhomogeneity_scaling, &
     cloud_inhomogeneity_mcica, &
     cloud_inhomogeneity_cairns, &
     cloud_inhomogeneity_tripleclouds, &
+    cloud_entrapment, &
+    cloud_entrapment_max, &
+    cloud_entrapment_zero, &
     droplet_effective_radius, &
     droplet_effective_radius_constant, &
     droplet_effective_radius_liu, &
@@ -117,6 +124,7 @@ subroutine socrates_init()
     ip_overlap_max_random, ip_overlap_random, ip_overlap_exponential_random, &
     ip_inhom_homogeneous, ip_inhom_scaling, ip_inhom_mcica, ip_inhom_cairns, &
     ip_inhom_tripleclouds_2019, &
+    ip_cloud_entrapment_max, ip_cloud_entrapment_zero, &
     ip_droplet_re_default, ip_droplet_re_constant, ip_droplet_re_liu
   use socrates_set_spectrum, only: set_spectrum, get_spectrum, set_mcica
   use log_mod, only: log_event, log_scratch_space, LOG_LEVEL_INFO
@@ -388,6 +396,15 @@ subroutine socrates_init()
   else
     i_inhom_inc = i_inhom
   end if
+
+  select case (cloud_entrapment)
+  case (cloud_entrapment_max)
+    i_cloud_entrapment = ip_cloud_entrapment_max
+  case (cloud_entrapment_zero)
+    i_cloud_entrapment = ip_cloud_entrapment_zero
+  case default
+    i_cloud_entrapment = ip_cloud_entrapment_zero
+  end select
 
   select case (droplet_effective_radius)
   case (droplet_effective_radius_constant)

@@ -258,12 +258,9 @@ subroutine sw_code(nlayers, n_profile,                                         &
   use aerosol_config_mod, only: l_radaer, sulphuric_strat_climatology, &
                                 easyaerosol_sw
   use jules_control_init_mod, only: n_surf_tile
-  use socrates_init_mod, only: n_sw_band,              &
-                               i_cloud_representation, &
-                               i_overlap,              &
-                               i_inhom,                &
-                               i_drop_re,              &
-                               l_orog
+  use socrates_init_mod, only: n_sw_band, &
+    i_cloud_representation, i_overlap, i_inhom, i_cloud_entrapment, &
+    i_drop_re, l_orog
   use um_physics_init_mod, only: n_aer_mode_sw, mode_dimen, sw_band_mode
   use socrates_runes, only: runes, StrDiag, ip_source_illuminate
   use empty_data_mod, only: empty_real_data
@@ -606,6 +603,7 @@ subroutine sw_code(nlayers, n_profile,                                         &
         i_cloud_representation = i_cloud_representation,                     &
         i_overlap              = i_overlap,                                  &
         i_inhom                = i_inhom,                                    &
+        i_cloud_entrapment     = i_cloud_entrapment,                         &
         i_drop_re              = i_drop_re,                                  &
         i_st_water             = i_cloud_liq_type_sw,                        &
         i_st_ice               = i_cloud_ice_type_sw,                        &

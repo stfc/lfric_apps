@@ -197,3 +197,18 @@ class vn20_t339(MacroUpgrade):
         self.add_setting(config, ["namelist:idealised", "perturb_seed"], "0")
 
         return config, self.reports
+
+
+class vn20_t541(MacroUpgrade):
+    """Upgrade macro for ticket #541 by James Manners."""
+
+    BEFORE_TAG = "vn2.0_t339"
+    AFTER_TAG = "vn2.0_t541"
+
+    def upgrade(self, config, meta_config=None):
+        # Commands From: science/socrates_interface/rose-meta/socrates-radiation
+        self.add_setting(
+            config, ["namelist:radiation", "cloud_entrapment"], "'zero'"
+        )
+
+        return config, self.reports
