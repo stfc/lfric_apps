@@ -33,7 +33,7 @@ module compute_vertical_cubic_coef_kernel_mod
   !>                                      by the PSy layer.
   type, public, extends(kernel_type) :: compute_vertical_cubic_coef_kernel_type
     private
-    type(arg_type) :: meta_args(13) = (/                                       &
+    type(arg_type) :: meta_args(11) = (/                                       &
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,  W2v),                       & ! dep_dist_z
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,  Wtheta),                    & ! theta_height
          arg_type(GH_FIELD,  GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! cubic_coef
@@ -44,8 +44,6 @@ module compute_vertical_cubic_coef_kernel_mod
          arg_type(GH_FIELD,  GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! cubic_indices
          arg_type(GH_FIELD,  GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! cubic_indices
          arg_type(GH_FIELD,  GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! cubic_indices
-         arg_type(GH_FIELD,  GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! linear_coef
-         arg_type(GH_FIELD,  GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! linear_coef
          arg_type(GH_SCALAR, GH_LOGICAL, GH_READ)                              & ! hermite
          /)
     integer :: operates_on = CELL_COLUMN
@@ -69,7 +67,6 @@ module compute_vertical_cubic_coef_kernel_mod
   !> @param[in]     theta_height  The height of theta-points
   !> @param[inout]  cubic_coef    The cubic interpolation coefficients (1-4)
   !> @param[inout]  cubic_indices The cubic interpolation indices (1-4)
-  !> @param[inout]  linear_coef   The linear interpolation coefficients (1-2, used for monotonicity)
   !> @param[in]     hermite       Flag to compute cubic-Hermite interpolation coefficients
   !> @param[in]     ndf_w2v       The number of degrees of freedom per cell
   !!                              on W2v space
@@ -97,7 +94,6 @@ module compute_vertical_cubic_coef_kernel_mod
                                                cubic_coef_3, cubic_coef_4,       &
                                                cubic_indices_1, cubic_indices_2, &
                                                cubic_indices_3, cubic_indices_4, &
-                                               linear_coef_1, linear_coef_2,     &
                                                hermite,                          &
                                                ndf_w2v, undf_w2v, map_w2v,       &
                                                ndf_wt, undf_wt, map_wt,          &
@@ -127,8 +123,6 @@ module compute_vertical_cubic_coef_kernel_mod
     integer(kind=i_def), dimension(undf_wc),  intent(inout) :: cubic_indices_2
     integer(kind=i_def), dimension(undf_wc),  intent(inout) :: cubic_indices_3
     integer(kind=i_def), dimension(undf_wc),  intent(inout) :: cubic_indices_4
-    real(kind=r_tran),   dimension(undf_wc),  intent(inout) :: linear_coef_1
-    real(kind=r_tran),   dimension(undf_wc),  intent(inout) :: linear_coef_2
 
     ! Local arrays and indices
     real(kind=r_tran),   dimension(nlayers)     :: zm, zmd
@@ -138,7 +132,6 @@ module compute_vertical_cubic_coef_kernel_mod
     real(kind=r_tran),   dimension(nlayers+1)   :: dz
     real(kind=r_tran),   dimension(4,nlayers+1) :: cc
     integer(kind=i_def), dimension(4,nlayers+1) :: sc
-    real(kind=r_tran),   dimension(2,nlayers+1) :: cl
 
     ! nl = nlayers-1  for W3
     !    = nlayers    for Wtheta
@@ -189,9 +182,9 @@ module compute_vertical_cubic_coef_kernel_mod
       dz(nz) = dz(nz - 1)
       ! Compute the cubic-interpolation coefficients
       if (hermite) then
-        call compute_cubic_hermite_coeffs(zmd,zm,dz,sc,cc,cl,nz,nz)
+        call compute_cubic_hermite_coeffs(zmd,zm,dz,sc,cc,nz,nz)
       else
-        call compute_cubic_coeffs(zmd,zm,dz,sc,cc,cl,nz,nz)
+        call compute_cubic_coeffs(zmd,zm,dz,sc,cc,nz,nz)
       end if
     else
       ! Wtheta field:
@@ -202,9 +195,9 @@ module compute_vertical_cubic_coef_kernel_mod
       dz(nzl) = dz(nzl-1)
       ! Compute the cubic-interpolation coefficients
       if (hermite) then
-        call compute_cubic_hermite_coeffs(zld,zl,dz,sc,cc,cl,nzl,nzl)
+        call compute_cubic_hermite_coeffs(zld,zl,dz,sc,cc,nzl,nzl)
       else
-        call compute_cubic_coeffs(zld,zl,dz,sc,cc,cl,nzl,nzl)
+        call compute_cubic_coeffs(zld,zl,dz,sc,cc,nzl,nzl)
       end if
     end if
 
@@ -218,8 +211,6 @@ module compute_vertical_cubic_coef_kernel_mod
       cubic_indices_2(map_wc(1)+k) = sc(2,k+1)
       cubic_indices_3(map_wc(1)+k) = sc(3,k+1)
       cubic_indices_4(map_wc(1)+k) = sc(4,k+1)
-      linear_coef_1(map_wc(1)+k)   = cl(1,k+1)
-      linear_coef_2(map_wc(1)+k)   = cl(2,k+1)
     end do
 
   end subroutine compute_vertical_cubic_coef_code

@@ -36,6 +36,13 @@ module transport_metadata_mod
     integer(kind=i_def)    :: ffsl_splitting ! Which FFSL splitting to use
     integer(kind=i_def)    :: ffsl_vertical_order ! Which FFSL order to use for vertical reconstructions
 
+    ! Stored internal values, allowing some options to be temporarily changed
+    integer(kind=i_def)    :: true_equation_form
+    integer(kind=i_def)    :: true_horizontal_method
+    integer(kind=i_def)    :: true_vertical_method
+    integer(kind=i_def)    :: true_horizontal_monotone
+    integer(kind=i_def)    :: true_vertical_monotone
+
     contains
 
     procedure, public :: get_name
@@ -56,8 +63,8 @@ module transport_metadata_mod
     procedure, public :: get_reversible
     procedure, public :: get_ffsl_splitting
     procedure, public :: get_ffsl_vertical_order
-    procedure, public :: set_advective
-    procedure, public :: set_no_mono
+    procedure, public :: update_metadata
+    procedure, public :: reset_metadata
 
   end type transport_metadata_type
 
@@ -123,6 +130,13 @@ contains
     self%reversible              = reversible
     self%ffsl_splitting          = ffsl_splitting
     self%ffsl_vertical_order     = ffsl_vertical_order
+
+    ! Set stored true values
+    self%true_equation_form = equation_form
+    self%true_horizontal_method = horizontal_method
+    self%true_vertical_method = vertical_method
+    self%true_horizontal_monotone = horizontal_monotone
+    self%true_vertical_monotone = vertical_monotone
 
   end function transport_metadata_constructor
 
@@ -384,47 +398,85 @@ contains
 
   end function get_ffsl_vertical_order
 
-  !> @brief Change the transport metadata to run advective transport options
-  !> @param[in] self     The transport_metadata object
-  subroutine set_advective(self)
+  !> @brief Update the metadata based on the outer loop
+  !> @details Updates the metadata options for this outer loop, for instance
+  !!          if reverting to advective form or not applying monotonicity
+  !> @param[in,out] self     The transport_metadata object
+  !> @param[in]     outer    The iteration of the semi-implicit outer loop
+  subroutine update_metadata(self, outer)
+
+    use timestepping_config_mod,    only: outer_iterations
+    use transport_config_mod,       only: si_outer_transport,                  &
+                                          si_outer_transport_none,             &
+                                          si_outer_transport_no_mono,          &
+                                          si_outer_transport_advective,        &
+                                          dry_field_name
+    use transport_enumerated_types_mod,                                        &
+                                    only: equation_form_advective,             &
+                                          split_method_ffsl,                   &
+                                          split_method_sl,                     &
+                                          horizontal_monotone_qm_pos,          &
+                                          horizontal_monotone_strict,          &
+                                          horizontal_monotone_none,            &
+                                          vertical_monotone_qm_pos,            &
+                                          vertical_monotone_strict,            &
+                                          vertical_monotone_none
 
     implicit none
 
     class(transport_metadata_type), intent(inout) :: self
+    integer(kind=i_def),            intent(in)    :: outer
 
-    ! Set equation form to be advective
-    self%equation_form = 2
-    ! If horizontal scheme is FFSL set scheme to be semi-Lagrangian
-    if (self%horizontal_method==2) then
-      self%horizontal_method = 3
-      self%vertical_method = 3
-      ! Ensure correct monotone options
-      if (self%horizontal_monotone == 2 .OR. &
-          self%horizontal_monotone == 3 .OR. &
-          self%horizontal_monotone == 7 ) then
-        self%horizontal_monotone = 4
+    if (si_outer_transport /= si_outer_transport_none                          &
+        .and. outer < outer_iterations                                         &
+        .and. self%fname /= dry_field_name) then
+
+      if (si_outer_transport == si_outer_transport_advective) then
+        ! Set equation form to be advective
+        self%equation_form = equation_form_advective
+
+        ! If scheme is FFSL, set scheme to be semi-Lagrangian
+        if (self%horizontal_method == split_method_ffsl) then
+          self%horizontal_method = split_method_sl
+          ! Ensure correct monotone options
+          if (self%horizontal_monotone == horizontal_monotone_qm_pos ) then
+            self%horizontal_monotone = horizontal_monotone_strict
+          end if
+        end if
+        if (self%vertical_method == split_method_ffsl) then
+          self%vertical_method = split_method_sl
+          ! Ensure correct monotone options
+          if (self%vertical_monotone == vertical_monotone_qm_pos ) then
+            self%vertical_monotone = vertical_monotone_strict
+          end if
+        end if
+
+      else if (si_outer_transport == si_outer_transport_no_mono) then
+        self%horizontal_monotone = horizontal_monotone_none
+        self%vertical_monotone = vertical_monotone_none
       end if
-      if (self%vertical_monotone == 2 .OR. &
-          self%vertical_monotone == 3 .OR. &
-          self%vertical_monotone == 7  ) then
-        self%vertical_monotone = 4
-      end if
+
     end if
 
-  end subroutine set_advective
+  end subroutine update_metadata
 
-  !> @brief Change the transport metadata to run without monotonicity
-  !> @param[in] self     The transport_metadata object
-  subroutine set_no_mono(self)
+  !> @brief Reset the metadata to its original values
+  !> @details Resets the transport metadata to its original values if it has
+  !!          been temporarily changed, e.g. by not applying monotonicity or
+  !!          using the advective form for a given outer loop
+  !> @param[in,out] self     The transport_metadata object
+  subroutine reset_metadata(self)
 
     implicit none
 
     class(transport_metadata_type), intent(inout) :: self
 
-    ! Switch off monotonicity
-    self%horizontal_monotone = 1
-    self%vertical_monotone   = 1
+    self%equation_form = self%true_equation_form
+    self%horizontal_method = self%true_horizontal_method
+    self%vertical_method = self%true_vertical_method
+    self%horizontal_monotone = self%true_horizontal_monotone
+    self%vertical_monotone = self%true_vertical_monotone
 
-  end subroutine set_no_mono
+  end subroutine reset_metadata
 
 end module transport_metadata_mod

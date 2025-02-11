@@ -97,6 +97,10 @@ subroutine vert_dep_dist_ffsl_code( nlayers,             &
   real(kind=r_tran)   :: flux_face_k, running_flux_k
   real(kind=r_tran)   :: frac_dep_dist, frac_flux_face_k
 
+  ! Factor used to ensure consistency of fractional flux if
+  ! there are any floating point rounding errors
+  integer(kind=i_def) :: rounding_factor
+
   ! Set the bottom values
   frac_wind(map_w2v(1)) = 0.0_r_tran
   dep_dist_z(map_w2v(1)) = 0.0_r_tran
@@ -142,8 +146,12 @@ subroutine vert_dep_dist_ffsl_code( nlayers,             &
     frac_dep_dist = frac_flux_face_k / detj(cell_idx)
 
     ! Set the values of the output fields
-    frac_wind(map_w2v(1)+k) = frac_flux_face_k
     dep_dist_z(map_w2v(1)+k) = real(sign_flux*num_int_cells, r_tran) + frac_dep_dist
+
+    ! If floating point rounding puts the dep_dist into the next integer value
+    ! then set the fractional part back to zero
+    rounding_factor = 1 - (abs(int(dep_dist_z(map_w2v(1)+k), i_def)) - num_int_cells)
+    frac_wind(map_w2v(1)+k) = frac_flux_face_k*rounding_factor
 
   end do
 

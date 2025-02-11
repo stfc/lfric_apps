@@ -44,7 +44,7 @@ type, public, extends(kernel_type) :: vert_dep_dist_lagrangian_kernel_type
   private
   type(arg_type) :: meta_args(9) = (/               &
        arg_type(GH_FIELD,  GH_REAL, GH_WRITE, W2v), & ! dep_dist
-       arg_type(GH_FIELD,  GH_REAL, GH_WRITE, W2),  & ! cfl
+       arg_type(GH_FIELD,  GH_REAL, GH_WRITE, W2v), & ! cfl
        arg_type(GH_FIELD,  GH_REAL, GH_READ,  W2v), & ! u_n
        arg_type(GH_FIELD,  GH_REAL, GH_READ,  W2v), & ! u_np1
        arg_type(GH_FIELD,  GH_REAL, GH_READ,  W2),  & ! heights_w2
@@ -121,7 +121,7 @@ subroutine vert_dep_dist_lagrangian_code( nlayers,             &
 
   ! Arguments
   real(kind=r_tran),   dimension(undf_w2v), intent(inout) :: dep_dist_z
-  real(kind=r_tran),   dimension(undf_w2),  intent(inout) :: cfl
+  real(kind=r_tran),   dimension(undf_w2v), intent(inout) :: cfl
   real(kind=r_tran),   dimension(undf_w2v), intent(in)    :: u_n
   real(kind=r_tran),   dimension(undf_w2v), intent(in)    :: u_np1
   real(kind=r_tran),   dimension(undf_w2),  intent(in)    :: height_w2
@@ -195,7 +195,7 @@ subroutine vert_dep_dist_lagrangian_code( nlayers,             &
                                 vertical_limit,       &
                                 dep_local(k),         &
                                 cfl_local )
-    cfl( map_w2(5) + k ) =  cfl_local
+    cfl( map_w2v(1) + k ) =  cfl_local
   end do
 
   if ( vertical_limit == vertical_limit_exponential ) then

@@ -19,24 +19,26 @@ module ffsl_vert_alg_mod
   use mesh_mod,                         only: mesh_type
   use r_tran_field_mod,                 only: r_tran_field_type
   use timer_mod,                        only: timer
-  use copy_field_alg_mod,               only: copy_field
+
+  ! Transport control
+  use flux_precomputations_alg_mod,     only: flux_precomputations_type
   use transport_constants_mod,          only: get_detj_at_w3_r_tran
-  use transport_enumerated_types_mod,   only: equation_form_advective,    &
-                                              equation_form_conservative, &
-                                              equation_form_consistent,   &
-                                              splitting_strang_vhv,       &
-                                              direction_v
+  use transport_controller_mod,         only: transport_controller_type
+  use transport_counter_mod,            only: transport_counter_type
+  use transport_enumerated_types_mod,   only: equation_form_consistent
   use transport_metadata_mod,           only: transport_metadata_type
-  use transport_runtime_alg_mod,        only: transport_runtime_type
-  use transport_runtime_collection_mod, only: get_transport_runtime
-  use ffsl_advective_updates_alg_mod,   only: swift_inner_update_tracer, &
+  use wind_precomputations_alg_mod,     only: wind_precomputations_type
+
+  ! Algorithms
+  use copy_field_alg_mod,               only: copy_field
+  use ffsl_advective_updates_alg_mod,   only: swift_inner_update_tracer,       &
                                               ffsl_advective_increment
 
   ! Kernels
   use ffsl_flux_z_constant_kernel_mod,  only: ffsl_flux_z_constant_kernel_type
   use ffsl_flux_z_nirvana_kernel_mod,   only: ffsl_flux_z_nirvana_kernel_type
   use ffsl_flux_z_ppm_kernel_mod,       only: ffsl_flux_z_ppm_kernel_type
-  use ffsl_flux_z_rev_nirvana_kernel_mod, &
+  use ffsl_flux_z_rev_nirvana_kernel_mod,                                      &
                                         only: ffsl_flux_z_rev_nirvana_kernel_type
   use fv_difference_z_kernel_mod,       only: fv_difference_z_kernel_type
   use fv_divergence_z_kernel_mod,       only: fv_divergence_z_kernel_type
@@ -45,8 +47,6 @@ module ffsl_vert_alg_mod
   use io_config_mod,                    only: subroutine_timers
   use finite_element_config_mod,        only: element_order_h, element_order_v
   use transport_config_mod,             only: ffsl_unity_3d
-
-  ! PSyKAl-lite code
 
   implicit none
 
@@ -71,49 +71,53 @@ contains
   !!                                   the optional logical argument.
   !> @param[in]     field_n            Field at the start of the transport step
   !> @param[in]     step_dt            The dt for this time step
-  !> @param[in]     transport_metadata Contains the configuration options for
-  !!                                   transporting this field
+  !> @param[in,out] transport_controller
+  !!                                   Object with metadata and precomputations
+  !!                                   to control the transport of the field
   !> @param[in]     order              The reconstruction order to pass to
   !!                                   the underlying vertical flux algorithm
   !> @param[in]     compute_adv_inc    Optional argument as to whether advective
   !!                                   increment should be computed
   !> @param[in]     compute_field_np1  Optional argument as to whether advected
   !!                                   field should be computed
-  subroutine ffsl_vert_transport_alg( mass_flux, increment,               &
-                                      field_np1, field_n,                 &
-                                      step_dt, transport_metadata, order, &
+  subroutine ffsl_vert_transport_alg( mass_flux, increment,                    &
+                                      field_np1, field_n, step_dt,             &
+                                      transport_controller, order,             &
                                       compute_adv_inc, compute_field_np1 )
 
     implicit none
 
     ! Arguments ----------------------------------------------------------------
-    type(r_tran_field_type),       intent(inout) :: mass_flux
-    type(r_tran_field_type),       intent(inout) :: increment
-    type(r_tran_field_type),       intent(inout) :: field_np1
-    type(r_tran_field_type),       intent(in)    :: field_n
-    real(kind=r_tran),             intent(in)    :: step_dt
-    type(transport_metadata_type), intent(in)    :: transport_metadata
-    integer(kind=i_def),           intent(in)    :: order
-    logical(kind=l_def), optional, intent(in)    :: compute_adv_inc
-    logical(kind=l_def), optional, intent(in)    :: compute_field_np1
+    type(r_tran_field_type),         intent(inout) :: mass_flux
+    type(r_tran_field_type),         intent(inout) :: increment
+    type(r_tran_field_type),         intent(inout) :: field_np1
+    type(r_tran_field_type),         intent(in)    :: field_n
+    real(kind=r_tran),               intent(in)    :: step_dt
+    type(transport_controller_type), intent(inout) :: transport_controller
+    integer(kind=i_def),             intent(in)    :: order
+    logical(kind=l_def),   optional, intent(in)    :: compute_adv_inc
+    logical(kind=l_def),   optional, intent(in)    :: compute_field_np1
 
     ! Internal variables -------------------------------------------------------
     ! Pointers to existing objects
-    type(transport_runtime_type), pointer :: transport_runtime => null()
-    type(mesh_type),              pointer :: mesh => null()
-    type(r_tran_field_type),      pointer :: adv_one => null()
-    type(r_tran_field_type),      pointer :: detj_at_w3 => null()
-    type(r_tran_field_type),      pointer :: dry_mass_n => null()
-    type(r_tran_field_type),      pointer :: dry_mass_np1 => null()
+    type(transport_counter_type),    pointer :: transport_counter
+    type(transport_metadata_type),   pointer :: transport_metadata
+    type(wind_precomputations_type), pointer :: wind_precomputations
+    type(flux_precomputations_type), pointer :: ffsl_precomputations
+    type(mesh_type),                 pointer :: mesh
+    type(r_tran_field_type),         pointer :: adv_one
+    type(r_tran_field_type),         pointer :: detj_at_w3
+    type(r_tran_field_type),         pointer :: dry_mass_n
+    type(r_tran_field_type),         pointer :: dry_mass_np1
 
     ! Function spaces
-    type(function_space_type), pointer :: field_fs => null()
+    type(function_space_type), pointer :: field_fs
 
     ! Transport options
     logical(kind=l_def) :: to_compute_adv_inc
     logical(kind=l_def) :: to_compute_field_np1
-    logical(kind=l_def) :: strang
-    integer(kind=i_def) :: step_with_substep
+    integer(kind=i_def) :: equation_form
+    integer(kind=i_def) :: splitting
 
     ! Subroutine name for timer
     character(*), parameter :: routine_name = 'transport.ffsl_vertical'
@@ -123,6 +127,9 @@ contains
     real(kind=r_tran)   :: one_over_dt
 
     if ( subroutine_timers ) call timer(routine_name)
+
+    transport_counter => transport_controller%get_transport_counter()
+    transport_metadata => transport_controller%get_transport_metadata()
 
     if (present(compute_adv_inc)) then
       to_compute_adv_inc = compute_adv_inc
@@ -137,66 +144,43 @@ contains
     end if
 
     ! Vertical FFSL ------------------------------------------------------------
-    call ffsl_1d_vert_flux_alg( mass_flux, field_n, step_dt, &
-                                transport_metadata, order )
+    call ffsl_1d_vert_flux_alg(                                                &
+            mass_flux, field_n, step_dt, transport_controller, order           &
+    )
+
+    splitting = transport_metadata%get_splitting()
+    equation_form = transport_metadata%get_equation_form()
 
     ! Compute advected field, if required --------------------------------------
     if (to_compute_adv_inc .or. to_compute_field_np1) then
       ! Get pre-computed objects
       mesh_id = field_n%get_mesh_id()
       mesh => field_n%get_mesh()
-      transport_runtime => get_transport_runtime(mesh)
       field_fs => field_n%get_function_space()
       detj_at_w3 => get_detj_at_w3_r_tran(mesh_id)
-      step = transport_runtime%get_tracer_step_ctr()
       one_over_dt = 1.0_r_tran / step_dt
 
       call increment%initialise( vector_space = field_fs )
 
-      select case ( transport_metadata%get_equation_form() )
-      case ( equation_form_advective, equation_form_conservative )
+      if (equation_form == equation_form_consistent) then
+        ffsl_precomputations => transport_controller%get_flux_precomputations()
+        step = transport_counter%get_split_step_of_whole_step_counter()
+      else if (ffsl_unity_3d) then
+        ffsl_precomputations => transport_controller%get_ffsl_precomputations()
+        step = transport_counter%get_split_step_of_substep_counter()
+      else
+        wind_precomputations => transport_controller%get_wind_precomputations()
+        step = transport_counter%get_split_step_of_substep_counter()
+      end if
 
-        if (ffsl_unity_3d) then
-          ! Multiply by transported volume fields
-          dry_mass_n => transport_runtime%get_detj_unity(mesh_id, step)
-          dry_mass_np1 => transport_runtime%get_detj_unity(mesh_id, step+1)
-
-          call invoke( fv_difference_z_kernel_type(increment, mass_flux) )
-
-          call swift_inner_update_tracer(field_np1, field_n,            &
-                                         dry_mass_np1, dry_mass_n,      &
-                                         increment, step_dt)
-
-        if (to_compute_adv_inc) then
-          ! Increment is really a negative increment, so subtract field_np1
-          call invoke( X_minus_Y(increment, field_n, field_np1),               &
-                       inc_a_times_X(one_over_dt, increment) )
-        end if
-
-        else
-          ! Get unity transport
-          strang = transport_metadata%get_splitting() == splitting_strang_vhv
-          adv_one => transport_runtime%get_adv_unity_z(mesh_id, strang)
-
-          call invoke( fv_divergence_z_kernel_type(increment, mass_flux, detj_at_w3) )
-          ! Get the advective increment from these conservative increments
-          call ffsl_advective_increment(increment, field_n, step_dt, adv_one)
-
-          if (to_compute_field_np1) call invoke( X_minus_bY(field_np1, field_n,  &
-                                                            step_dt, increment) )
-        end if
-
-      case ( equation_form_consistent )
-
-        ! Multiply tracer mixing ratio by dry density to get tracer density
-        step_with_substep = transport_runtime%get_substep_total_index(1)+step
-        dry_mass_n => transport_runtime%get_dry_mass(mesh_id, step_with_substep)
-        dry_mass_np1 => transport_runtime%get_dry_mass(mesh_id, step_with_substep+1)
+      if (ffsl_unity_3d .or. equation_form == equation_form_consistent) then
+        dry_mass_n => ffsl_precomputations%get_ref_mass(mesh_id, step)
+        dry_mass_np1 => ffsl_precomputations%get_ref_mass(mesh_id, step+1)
 
         call invoke( fv_difference_z_kernel_type(increment, mass_flux) )
 
-        call swift_inner_update_tracer(field_np1, field_n,              &
-                                       dry_mass_np1, dry_mass_n,        &
+        call swift_inner_update_tracer(field_np1, field_n,                     &
+                                       dry_mass_np1, dry_mass_n,               &
                                        increment, step_dt)
 
         if (to_compute_adv_inc) then
@@ -205,14 +189,17 @@ contains
                        inc_a_times_X(one_over_dt, increment) )
         end if
 
-      case default
-        call log_event( "ffsl_vert_transport_alg: Unrecognized equation form", LOG_LEVEL_ERROR )
+      else
+        adv_one => wind_precomputations%get_adv_unity_z(mesh_id, splitting, step)
 
-      end select
+        call invoke( fv_divergence_z_kernel_type(increment, mass_flux, detj_at_w3) )
+        ! Get the advective increment from these conservative increments
+        call ffsl_advective_increment(increment, field_n, step_dt, adv_one)
+
+        if (to_compute_field_np1) call invoke( X_minus_bY(field_np1, field_n,  &
+                                                          step_dt, increment) )
+      end if
     end if
-
-    nullify( mesh, transport_runtime, field_fs, adv_one, detj_at_w3, &
-             dry_mass_n, dry_mass_np1 )
 
     if ( subroutine_timers ) call timer(routine_name)
 
@@ -224,43 +211,44 @@ contains
   !> @param[in,out] mass_flux          Mass flux used to transport the field.
   !> @param[in]     field_n            Field at the start of the transport step
   !> @param[in]     step_dt            The dt for this time step
-  !> @param[in]     transport_metadata Contains the configuration options for
-  !!                                   transporting this field
+  !> @param[in,out] transport_controller
+  !!                                   Object with metadata and precomputations
+  !!                                   to control the transport of the field
   !> @param[in]     order              The reconstruction order to use
-  subroutine ffsl_1d_vert_flux_alg( mass_flux, field_n, step_dt, &
-                                    transport_metadata, order )
+  subroutine ffsl_1d_vert_flux_alg( mass_flux, field_n, step_dt,               &
+                                    transport_controller, order )
 
     implicit none
 
     ! Arguments ----------------------------------------------------------------
-    type(r_tran_field_type),       intent(inout) :: mass_flux
-    type(r_tran_field_type),       intent(in)    :: field_n
-    real(kind=r_tran),             intent(in)    :: step_dt
-    type(transport_metadata_type), intent(in)    :: transport_metadata
-    integer(kind=i_def),           intent(in)    :: order
+    type(r_tran_field_type),         intent(inout) :: mass_flux
+    type(r_tran_field_type),         intent(in)    :: field_n
+    real(kind=r_tran),               intent(in)    :: step_dt
+    type(transport_controller_type), intent(inout) :: transport_controller
+    integer(kind=i_def),             intent(in)    :: order
 
     ! Internal variables -------------------------------------------------------
     ! Pointers to existing objects
-    type(transport_runtime_type), pointer :: transport_runtime => null()
-    type(mesh_type),              pointer :: mesh => null()
-    type(r_tran_field_type),      pointer :: dep_pts_z => null()
-    type(r_tran_field_type),      pointer :: frac_wind_or_flux => null()
-    type(r_tran_field_type),      pointer :: detj_at_w3 => null()
-    type(r_tran_field_type),      pointer :: dry_mass => null()
-    type(field_type),             pointer :: dz_w3_rdef => null()
+    type(transport_counter_type),    pointer :: transport_counter
+    type(transport_metadata_type),   pointer :: transport_metadata
+    type(wind_precomputations_type), pointer :: wind_precomputations
+    type(flux_precomputations_type), pointer :: ffsl_precomputations
+    type(mesh_type),                 pointer :: mesh
+    type(r_tran_field_type),         pointer :: dep_pts_z
+    type(r_tran_field_type),         pointer :: frac_wind_or_flux
+    type(r_tran_field_type),         pointer :: detj_at_w3
+    type(field_type),                pointer :: dz_w3_rdef
 
     ! Function spaces
-    type(function_space_type), pointer :: field_fs => null()
-    type(function_space_type), pointer :: w2v_fs => null()
+    type(function_space_type), pointer :: field_fs
+    type(function_space_type), pointer :: w2v_fs
 
     ! Transport options
     logical(kind=l_def) :: log_space
     integer(kind=i_def) :: monotone
     logical(kind=l_def) :: reversible
     integer(kind=i_def) :: equation_form
-    logical(kind=l_def) :: strang_vhv
-    integer(kind=i_def) :: step_with_substep
-    integer(kind=i_def) :: step_p1_with_substep
+    integer(kind=i_def) :: splitting
     logical(kind=l_def) :: first_order_cheap_update
 
     ! Internal fields
@@ -275,7 +263,8 @@ contains
     ! Get pre-computed objects and set pointers --------------------------------
     mesh_id = field_n%get_mesh_id()
     mesh => field_n%get_mesh()
-    transport_runtime => get_transport_runtime(mesh)
+    transport_counter => transport_controller%get_transport_counter()
+    transport_metadata => transport_controller%get_transport_metadata()
 
     ! Function spaces
     field_fs => field_n%get_function_space()
@@ -287,8 +276,8 @@ contains
     log_space = transport_metadata%get_log_space()
     reversible = transport_metadata%get_reversible()
     equation_form = transport_metadata%get_equation_form()
-    strang_vhv = ( transport_metadata%get_splitting() ==  splitting_strang_vhv )
-    first_order_cheap_update = transport_runtime%get_apply_cheap_update()
+    splitting = transport_metadata%get_splitting()
+    first_order_cheap_update = transport_controller%get_cheap_update_step()
 
     if (first_order_cheap_update) then
       ! Use first order transport
@@ -298,37 +287,33 @@ contains
       vertical_order = order
     end if
 
-    ! Initialise fields used by all splitting options --------------------------
     call mass_flux%initialise( vector_space = w2v_fs )
 
-    ! Compute low order and integer fluxes -------------------------------------
-    select case( equation_form )
+    ! Point to appropriate pre-computed fields ---------------------------------
+    if (equation_form == equation_form_consistent) then
+      ffsl_precomputations => transport_controller%get_flux_precomputations()
+      step = transport_counter%get_split_step_of_whole_step_counter()
+    else if (ffsl_unity_3d) then
+      ffsl_precomputations => transport_controller%get_ffsl_precomputations()
+      step = transport_counter%get_split_step_of_substep_counter()
+    else
+      wind_precomputations => transport_controller%get_wind_precomputations()
+      step = transport_counter%get_split_step_of_substep_counter()
+    end if
 
-    case ( equation_form_conservative, equation_form_advective )
-      if (ffsl_unity_3d) then
-        step = transport_runtime%get_tracer_step_ctr()
-        dep_pts_z => transport_runtime%get_unity_dep_dist_z(mesh_id, step)
-        frac_wind_or_flux => transport_runtime%get_unity_frac_wind_z(mesh_id, step)
-        detj_at_w3 => transport_runtime%get_detj_unity(mesh_id, step)
-      else
-        detj_at_w3 => get_detj_at_w3_r_tran(mesh_id)
-        dep_pts_z => transport_runtime%get_dep_dist_z_w2(mesh_id, strang_vhv)
-        frac_wind_or_flux => transport_runtime%get_frac_wind_z(mesh_id, strang_vhv)
-      end if
-
-    case ( equation_form_consistent )
-      ! No need to take Strang into account for tracer departure points, as this
-      ! should already be factored into the departure points
-      step = transport_runtime%get_tracer_step_ctr()
-      step_with_substep = transport_runtime%get_substep_total_index(0)+step
-      dep_pts_z => transport_runtime%get_tracer_dep_dist_z(mesh_id, step_with_substep)
-      frac_wind_or_flux => transport_runtime%get_dry_frac_flux_z(mesh_id, step_with_substep)
-      step_p1_with_substep = transport_runtime%get_substep_total_index(1)+step
-      detj_at_w3 => transport_runtime%get_dry_mass(mesh_id, step_p1_with_substep)
-
-    case default
-      call log_event( "ffsl_1d_vert_flux_alg: Unrecognized equation form", LOG_LEVEL_ERROR )
-    end select
+    if (equation_form == equation_form_consistent .or. ffsl_unity_3d) then
+      dep_pts_z => ffsl_precomputations%get_dep_dist(mesh_id, step)
+      frac_wind_or_flux => ffsl_precomputations%get_frac_flux(mesh_id, step)
+      detj_at_w3 => ffsl_precomputations%get_ref_mass(mesh_id, step)
+    else
+      detj_at_w3 => get_detj_at_w3_r_tran(mesh_id)
+      dep_pts_z => wind_precomputations%get_dep_dist_z(                        &
+          mesh_id, splitting, step                                             &
+      )
+      frac_wind_or_flux => wind_precomputations%get_frac_wind_z(               &
+          mesh_id, splitting, step                                             &
+      )
+    end if
 
     if ( vertical_order /= 0 ) then
       ! Get objects only needed for high order flux
@@ -337,7 +322,7 @@ contains
       call copy_field(dz_w3_rdef, dz_w3)
     end if
 
-    ! Compute fluxes
+    ! Compute fluxes -----------------------------------------------------------
     select case ( vertical_order )
     case ( 0 )
       ! Constant reconstruction
@@ -398,9 +383,6 @@ contains
     case default
       call log_event( "ffsl_1d_vert_flux_alg: order not implemented", LOG_LEVEL_ERROR )
     end select
-
-    nullify( dep_pts_z, detj_at_w3, field_fs,  w2v_fs, dz_w3_rdef, &
-             frac_wind_or_flux, transport_runtime, mesh, dry_mass )
 
   end subroutine ffsl_1d_vert_flux_alg
 

@@ -24,6 +24,7 @@ module tl_theta_transport_alg_mod
   use transport_config_mod,            only: theta_variable,             &
                                              theta_variable_dry,         &
                                              adjust_theta
+  use tl_transport_controller_mod,     only: tl_transport_controller_type
   use transport_enumerated_types_mod,  only: equation_form_advective,    &
                                              equation_form_consistent
   use transport_metadata_mod,          only: transport_metadata_type
@@ -53,28 +54,30 @@ contains
   !!                                   before transport
   !> @param[in]     ls_theta_in        Linear state: Dry potential temperature
   !!                                   before transport
-  !> @param[in]     model_dt           Model timestep
+  !> @param[in,out] tl_transport_controller
+  !!                                   Controls transport
   !> @param[in]     transport_metadata Contains the configuration options for
   !!                                   transporting the potential temperature
-  subroutine tl_theta_transport_alg(theta_out, theta_inc,      &
-                                    theta_in, ls_theta_in,     &
-                                    model_dt, transport_metadata)
+  subroutine tl_theta_transport_alg(theta_out, theta_inc,                      &
+                                    theta_in, ls_theta_in,                     &
+                                    tl_transport_controller,                   &
+                                    transport_metadata)
 
     implicit none
 
     ! Arguments
-    type(field_type),      target, intent(inout) :: theta_out
-    type(field_type),              intent(inout) :: theta_inc
-    type(field_type),      target, intent(in)    :: theta_in
-    type(field_type),      target, intent(in)    :: ls_theta_in
-    real(kind=r_def),              intent(in)    :: model_dt
-    type(transport_metadata_type), intent(in)    :: transport_metadata
+    type(field_type),           target, intent(inout) :: theta_out
+    type(field_type),                   intent(inout) :: theta_inc
+    type(field_type),           target, intent(in)    :: theta_in
+    type(field_type),           target, intent(in)    :: ls_theta_in
+    type(tl_transport_controller_type), intent(inout) :: tl_transport_controller
+    type(transport_metadata_type),      intent(inout) :: transport_metadata
 
     ! Internal variables
-    real(kind=r_def)                      :: one
-    type(field_type),             pointer :: theta_in_ptr => null()
-    type(field_type),             pointer :: theta_out_ptr => null()
-    type(field_type),             pointer :: ls_theta_in_ptr => null()
+    real(kind=r_def)          :: one
+    type(field_type), pointer :: theta_in_ptr
+    type(field_type), pointer :: theta_out_ptr
+    type(field_type), pointer :: ls_theta_in_ptr
 
     ! ------------------------------------------------------------------------ !
     ! Convert to potential temperature to transport
@@ -106,8 +109,10 @@ contains
         ! Advective:  Simply transport all the potential temperature in Wtheta
         ! Consistent: Transformation to densities and evaluation of fluxes is in
         !             lowest level algorithms, so just call transport_field
-        call tl_transport_field(theta_out_ptr, theta_in_ptr, ls_theta_in_ptr, &
-                                model_dt, transport_metadata)
+        call tl_transport_field(                                               &
+                theta_out_ptr, theta_in_ptr, ls_theta_in_ptr,                  &
+                tl_transport_controller, transport_metadata                    &
+        )
 
     ! ------------------------------------------------------------------------ !
     ! Default form of transport equation
@@ -146,8 +151,6 @@ contains
     ! ------------------------------------------------------------------------ !
 
     call invoke( X_minus_Y(theta_inc, theta_out, theta_in) )
-
-    nullify( theta_in_ptr, theta_out_ptr, ls_theta_in_ptr )
 
   end subroutine tl_theta_transport_alg
 

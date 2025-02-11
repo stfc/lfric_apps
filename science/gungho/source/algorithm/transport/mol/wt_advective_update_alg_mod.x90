@@ -19,7 +19,7 @@
 module wt_advective_update_alg_mod
 
   use check_configuration_mod,            only: get_required_stencil_depth
-  use constants_mod,                      only: r_def, i_def, l_def, str_def, &
+  use constants_mod,                      only: r_def, i_def, l_def, str_def,  &
                                                 r_tran
   use sci_geometric_constants_mod,        only: get_coordinates,               &
                                                 get_extended_coordinates,      &
@@ -31,7 +31,7 @@ module wt_advective_update_alg_mod
                                                 element_order_v,          &
                                                 nqp_h_exact,              &
                                                 nqp_v_exact
-  use fs_continuity_mod,                  only: W3, Wtheta
+  use fs_continuity_mod,                  only: W3, Wtheta, W2H, W2V
   use function_space_mod,                 only: function_space_type
   use function_space_collection_mod,      only: function_space_collection
   use inventory_by_mesh_mod,              only: inventory_by_mesh_type
@@ -40,16 +40,16 @@ module wt_advective_update_alg_mod
   use quadrature_xyoz_mod,                only: quadrature_xyoz_type
   use quadrature_face_mod,                only: quadrature_face_type
   use quadrature_edge_mod,                only: quadrature_edge_type
-  use transport_config_mod,               only: operators,            &
-                                                fv_horizontal_order,  &
-                                                fv_vertical_order,    &
-                                                operators_fv,         &
-                                                operators_fem,        &
-                                                oned_reconstruction,  &
-                                                consistent_metric,    &
+  use transport_config_mod,               only: operators,                     &
+                                                fv_horizontal_order,           &
+                                                fv_vertical_order,             &
+                                                operators_fv,                  &
+                                                operators_fem,                 &
+                                                oned_reconstruction,           &
+                                                consistent_metric,             &
                                                 extended_mesh
-  use log_mod,                            only: log_event,         &
-                                                LOG_LEVEL_ERROR,   &
+  use log_mod,                            only: log_event,                     &
+                                                LOG_LEVEL_ERROR,               &
                                                 LOG_LEVEL_INFO
   use mesh_collection_mod,                only: mesh_collection
   use mesh_mod,                           only: mesh_type
@@ -57,18 +57,16 @@ module wt_advective_update_alg_mod
   use poly2d_reconstruction_kernel_mod,   only: poly2d_reconstruction_kernel_type
   use poly_adv_update_kernel_mod,         only: poly_adv_update_kernel_type
   use remap_on_extended_mesh_alg_mod,     only: remap_on_extended_mesh
-  use transport_enumerated_types_mod,     only: direction_v,                  &
-                                                direction_h,                  &
-                                                direction_3d,                 &
-                                                horizontal_monotone_none,     &
-                                                horizontal_monotone_koren,    &
-                                                horizontal_monotone_clipping, &
-                                                vertical_monotone_none,       &
-                                                vertical_monotone_koren,      &
+  use transport_enumerated_types_mod,     only: direction_v,                   &
+                                                direction_h,                   &
+                                                direction_3d,                  &
+                                                horizontal_monotone_none,      &
+                                                horizontal_monotone_koren,     &
+                                                horizontal_monotone_clipping,  &
+                                                vertical_monotone_none,        &
+                                                vertical_monotone_koren,       &
                                                 vertical_monotone_clipping
   use transport_metadata_mod,             only: transport_metadata_type
-  use transport_runtime_alg_mod,          only: transport_runtime_type
-  use transport_runtime_collection_mod,   only: get_transport_runtime
   use polyh_wtheta_koren_kernel_mod,      only: polyh_wtheta_koren_kernel_type
   use polyv_wtheta_koren_kernel_mod,      only: polyv_wtheta_koren_kernel_type
   use copy_field_alg_mod,                 only: copy_field
@@ -106,13 +104,12 @@ contains
     type(r_tran_field_type),       intent(inout) :: u_grad_f
     type(transport_metadata_type), intent(in)    :: transport_metadata
 
-    type(mesh_type),             pointer :: mesh
-    type(function_space_type),   pointer :: multidata_fs
-    type(r_tran_field_type),     pointer :: adv_coeffs
-    type(r_tran_field_type)              :: h_reconstruction
-    type(r_tran_field_type),      target  :: remap_field, field_big_halo
-    type(r_tran_field_type),      pointer :: field_ptr => null()
-    type(transport_runtime_type), pointer :: transport_runtime => null()
+    type(mesh_type),           pointer :: mesh
+    type(function_space_type), pointer :: multidata_fs
+    type(r_tran_field_type),   pointer :: adv_coeffs
+    type(r_tran_field_type)            :: h_reconstruction
+    type(r_tran_field_type),   target  :: remap_field, field_big_halo
+    type(r_tran_field_type),   pointer :: field_ptr
 
     integer(kind=i_def) :: mesh_id
     integer(kind=i_def) :: stencil_extent
@@ -153,14 +150,12 @@ contains
     monotone = (transport_metadata%get_horizontal_monotone() == horizontal_monotone_koren)
     if ( extended_mesh .and. (monotone .or. oned_reconstruction) ) then
       remap_depth = int(fv_horizontal_order/2)
-      transport_runtime => get_transport_runtime(mesh)
       call remap_on_extended_mesh(remap_field, field_big_halo,                 &
                                   monotone,                                    &
                                   transport_metadata%get_enforce_min_value(),  &
                                   transport_metadata%get_min_value(),          &
                                   remap_depth)
       field_ptr => remap_field
-      nullify(transport_runtime)
     else
       field_ptr => field_big_halo
     end if
@@ -301,6 +296,10 @@ contains
     use rtheta_bd_kernel_mod,           only: rtheta_bd_kernel_type
     use reference_element_mod,          only: reference_element_type
     use mesh_mod,                       only: mesh_type
+    use split_w2_field_kernel_mod,      only: split_w2_field_kernel_type
+    use integer_field_mod,              only: integer_field_type
+    use sci_geometric_constants_mod,    only: get_face_selector_ew,            &
+                                              get_face_selector_ns
 
     implicit none
 
@@ -312,18 +311,20 @@ contains
 
 
     type(r_tran_field_type)                :: u_grad_f
-    type(r_tran_field_type),       pointer :: wind_v => null()
-    type(r_tran_field_type),       pointer :: wind_h => null()
-    type(transport_runtime_type),  pointer :: transport_runtime => null()
-    type(field_type), pointer              :: chi(:) => null()
-    type(field_type), pointer              :: mt_lumped_inv_r_def => null()
+    type(r_tran_field_type)                :: wind_v
+    type(r_tran_field_type)                :: wind_h
+    type(function_space_type),     pointer :: w2h_fs, w2v_fs
+    type(integer_field_type),      pointer :: face_selector_ew
+    type(integer_field_type),      pointer :: face_selector_ns
+    type(field_type),              pointer :: chi(:)
+    type(field_type),              pointer :: mt_lumped_inv_r_def
     type(r_tran_field_type)                :: mt_lumped_inv_r_tran
     type(r_tran_field_type)                :: consistent_wind
     type(r_tran_field_type)                :: u_grad_z
-    type(field_type), pointer              :: height_rdef => null()
+    type(field_type),              pointer :: height_rdef
     type(r_tran_field_type)                :: height
-    class(reference_element_type), pointer :: reference_element => null()
-    type(mesh_type), pointer               :: mesh => null()
+    class(reference_element_type), pointer :: reference_element
+    type(mesh_type),               pointer :: mesh
     type(quadrature_xyoz_type)             :: qr
     type(quadrature_face_type)             :: qrf
     type(quadrature_rule_gaussian_type)    :: quadrature_rule
@@ -360,14 +361,24 @@ contains
 
       select case ( direction )
       case ( direction_3d )
-        transport_runtime => get_transport_runtime(mesh)
-        wind_h => transport_runtime%get_horizontal_advecting_wind(mesh%get_id())
-        wind_v => transport_runtime%get_vertical_advecting_wind(mesh%get_id())
-
+        ! Split wind into horizontal and vertical parts
+        w2h_fs => function_space_collection%get_fs(                            &
+            mesh, element_order_h, element_order_v, W2H                        &
+        )
+        w2v_fs => function_space_collection%get_fs(                            &
+            mesh, element_order_h, element_order_v, W2V                        &
+        )
+        face_selector_ew => get_face_selector_ew(mesh%get_id())
+        face_selector_ns => get_face_selector_ns(mesh%get_id())
+        call wind_h%initialise(w2h_fs)
+        call wind_v%initialise(w2v_fs)
+        call invoke( split_w2_field_kernel_type(wind_h, wind_v, wind,          &
+                                                face_selector_ew,              &
+                                                face_selector_ns) )
         ! Horizontal update
         call hori_wt_update_alg(u_grad_f, wind_h, wind_h, adv_field, transport_metadata)
 
-        ! TODO #3325: Make consistent wind belong to transport_runtime thing
+        ! TODO #3325: Make consistent wind be pre-computed
         if ( consistent_metric ) then
           ! Consistent wind will be vertical only -- initialise as wind_v
           height_rdef => get_height(Wtheta, mesh%get_id())
@@ -384,12 +395,10 @@ contains
           ! Then vertical update uses consistent wind
           call vert_wt_update_alg(u_grad_f, consistent_wind, adv_field, &
                                   transport_metadata, final_rk_stage)
-          nullify( height_rdef, chi )
         else
           ! Not using consistent wind, so just do normal vertical update
           call vert_wt_update_alg(u_grad_f, wind_v, adv_field, &
                                   transport_metadata, final_rk_stage)
-          nullify( wind_v )
         end if
 
       case ( direction_h )
@@ -433,8 +442,6 @@ contains
     call mt_lumped_inv_r_tran%initialise(mt_lumped_inv_r_def%get_function_space())
     call copy_field(mt_lumped_inv_r_def, mt_lumped_inv_r_tran)
     call invoke( X_times_Y(rhs, u_grad_f, mt_lumped_inv_r_tran) )
-
-    nullify( mt_lumped_inv_r_def, reference_element, mesh  )
 
   end subroutine wt_advective_update_alg
 

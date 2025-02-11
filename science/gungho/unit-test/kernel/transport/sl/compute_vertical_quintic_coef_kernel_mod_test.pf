@@ -45,14 +45,12 @@ contains
     real(kind=r_tran),   dimension(undf_wc)  :: quintic_coef_w3_1, quintic_coef_w3_2, &
                                                 quintic_coef_w3_3, quintic_coef_w3_4, &
                                                 quintic_coef_w3_5, quintic_coef_w3_6
-    real(kind=r_tran),   dimension(undf_wc)  :: linear_coef_w3_1, linear_coef_w3_2
     integer(kind=i_def), dimension(undf_wc)  :: quintic_indices_w3_1, quintic_indices_w3_2, &
                                                 quintic_indices_w3_3, quintic_indices_w3_4, &
                                                 quintic_indices_w3_5, quintic_indices_w3_6
     real(kind=r_tran),   dimension(undf_wm)  :: quintic_coef_wt_1, quintic_coef_wt_2, &
                                                 quintic_coef_wt_3, quintic_coef_wt_4, &
                                                 quintic_coef_wt_5, quintic_coef_wt_6
-    real(kind=r_tran),   dimension(undf_wm)  :: linear_coef_wt_1, linear_coef_wt_2
     integer(kind=i_def), dimension(undf_wm)  :: quintic_indices_wt_1, quintic_indices_wt_2, &
                                                 quintic_indices_wt_3, quintic_indices_wt_4, &
                                                 quintic_indices_wt_5, quintic_indices_wt_6
@@ -89,19 +87,11 @@ contains
                                              quintic_indices_w3_1, quintic_indices_w3_2, &
                                              quintic_indices_w3_3, quintic_indices_w3_4, &
                                              quintic_indices_w3_5, quintic_indices_w3_6, &
-                                             linear_coef_w3_1, linear_coef_w3_2,         &
                                              ndf_w2v, undf_w2v, map_w2v,                 &
                                              ndf_wt, undf_wt, map_wt,                    &
                                              ndf_wc, undf_wc, map_wc )
 
     ! Test selection of the indices (indices are also tested in sl_support_mod_test)
-    !@assertEqual(1.0_r_tran, real(quintic_indices_w3(1),r_tran), tol)
-    !@assertEqual(1.0_r_tran, real(quintic_indices_w3(2+nlayers),r_tran), tol)
-    !@assertEqual(2.0_r_tran, real(quintic_indices_w3(3+2*nlayers),r_tran), tol)
-    !@assertEqual(4.0_r_tran, real(quintic_indices_w3(4+3*nlayers),r_tran), tol)
-    !@assertEqual(6.0_r_tran, real(quintic_indices_w3(5+4*nlayers),r_tran), tol)
-    !@assertEqual(6.0_r_tran, real(quintic_indices_w3(6+5*nlayers),r_tran), tol)
-
     @assertEqual(1.0_r_tran, real(quintic_indices_w3_1(1),r_tran), tol)
     @assertEqual(1.0_r_tran, real(quintic_indices_w3_2(2),r_tran), tol)
     @assertEqual(2.0_r_tran, real(quintic_indices_w3_3(3),r_tran), tol)
@@ -110,13 +100,6 @@ contains
     @assertEqual(6.0_r_tran, real(quintic_indices_w3_6(6),r_tran), tol)
 
     ! Test the quintic coefficients (coefficients are also tested in sl_support_mod_test)
-    !@assertEqual(0.0_r_tran, quintic_coef_w3(1), tol)
-    !@assertEqual(0.0_r_tran, quintic_coef_w3(2+nlayers), tol)
-    !@assertEqual(1.0_r_tran, quintic_coef_w3(1+2*nlayers), tol)
-    !@assertEqual(0.25_r_tran, quintic_coef_w3(2+2*nlayers), tol)
-    !@assertEqual(0.95_r_tran, quintic_coef_w3(5+2*nlayers), tol)
-    !@assertEqual(0.0_r_tran, quintic_coef_w3(6+5*nlayers), tol)
-
     @assertEqual(0.0_r_tran,  quintic_coef_w3_1(1), tol)
     @assertEqual(0.0_r_tran,  quintic_coef_w3_2(2), tol)
     @assertEqual(1.0_r_tran,  quintic_coef_w3_3(1), tol)
@@ -134,19 +117,11 @@ contains
                                              quintic_indices_wt_1, quintic_indices_wt_2, &
                                              quintic_indices_wt_3, quintic_indices_wt_4, &
                                              quintic_indices_wt_5, quintic_indices_wt_6, &
-                                             linear_coef_wt_1, linear_coef_wt_2,         &
                                              ndf_w2v, undf_w2v, map_w2v,                 &
                                              ndf_wt, undf_wt, map_wt,                    &
                                              ndf_wm, undf_wm, map_wm )
 
     ! Test selection of the indices (indices are also tested in sl_support_mod_test)
-    !@assertEqual(1.0_r_tran, real(quintic_indices_wt(1),r_tran), tol)
-    !@assertEqual(1.0_r_tran, real(quintic_indices_wt(2+(nlayers+1)),r_tran), tol)
-    !@assertEqual(2.0_r_tran, real(quintic_indices_wt(3+2*(nlayers+1)),r_tran), tol)
-    !@assertEqual(3.0_r_tran, real(quintic_indices_wt(4+3*(nlayers+1)),r_tran), tol)
-    !@assertEqual(7.0_r_tran, real(quintic_indices_wt(5+4*(nlayers+1)),r_tran), tol)
-    !@assertEqual(7.0_r_tran, real(quintic_indices_wt(6+5*(nlayers+1)),r_tran), tol)
-
     @assertEqual(1.0_r_tran, real(quintic_indices_wt_1(1),r_tran), tol)
     @assertEqual(1.0_r_tran, real(quintic_indices_wt_2(2),r_tran), tol)
     @assertEqual(2.0_r_tran, real(quintic_indices_wt_3(3),r_tran), tol)
@@ -155,14 +130,7 @@ contains
     @assertEqual(7.0_r_tran, real(quintic_indices_wt_6(6),r_tran), tol)
 
     ! Test the quintic coefficients (coefficients are also tested in sl_support_mod_test)
-    !@assertEqual(0.0_r_tran, quintic_coef_wt(1), tol)
-    !@assertEqual(-0.032_r_tran, quintic_coef_wt(4+(nlayers+1)), tol)
-    !@assertEqual(0.5625_r_tran, quintic_coef_wt(3+2*(nlayers+1)), tol)
-    !@assertEqual(0.216_r_tran, quintic_coef_wt(4+2*(nlayers+1)), tol)
-    !@assertEqual(1.0_r_tran, quintic_coef_wt(2+3*(nlayers+1)), tol)
-    !@assertEqual(-0.0625_r_tran, quintic_coef_wt(3+4*(nlayers+1)), tol)
-
-    @assertEqual(0.0_r_tran, quintic_coef_wt_1(1), tol)
+    @assertEqual(0.0_r_tran,     quintic_coef_wt_1(1), tol)
     @assertEqual(-0.032_r_tran,  quintic_coef_wt_2(4), tol)
     @assertEqual(0.5625_r_tran,  quintic_coef_wt_3(3), tol)
     @assertEqual(0.216_r_tran,   quintic_coef_wt_3(4), tol)

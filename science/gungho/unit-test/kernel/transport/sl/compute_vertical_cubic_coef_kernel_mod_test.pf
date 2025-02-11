@@ -44,12 +44,10 @@ contains
     real(kind=r_tran),   dimension(undf_wt)  :: theta_height
     real(kind=r_tran),   dimension(undf_wc)  :: cubic_coef_w3_1, cubic_coef_w3_2, &
                                                 cubic_coef_w3_3, cubic_coef_w3_4
-    real(kind=r_tran),   dimension(undf_wc)  :: linear_coef_w3_1, linear_coef_w3_2
     integer(kind=i_def), dimension(undf_wc)  :: cubic_indices_w3_1, cubic_indices_w3_2, &
                                                 cubic_indices_w3_3, cubic_indices_w3_4
     real(kind=r_tran),   dimension(undf_wm)  :: cubic_coef_wt_1, cubic_coef_wt_2, &
                                                 cubic_coef_wt_3, cubic_coef_wt_4
-    real(kind=r_tran),   dimension(undf_wm)  :: linear_coef_wt_1, linear_coef_wt_2
     integer(kind=i_def), dimension(undf_wm)  :: cubic_indices_wt_1, cubic_indices_wt_2, &
                                                 cubic_indices_wt_3, cubic_indices_wt_4
     logical(kind=l_def) :: hermite
@@ -83,7 +81,6 @@ contains
                                            cubic_coef_w3_3, cubic_coef_w3_4,                &
                                            cubic_indices_w3_1, cubic_indices_w3_2,          &
                                            cubic_indices_w3_3, cubic_indices_w3_4,          &
-                                           linear_coef_w3_1, linear_coef_w3_2,              &
                                            hermite,                                         &
                                            ndf_w2v, undf_w2v, map_w2v,                      &
                                            ndf_wt, undf_wt, map_wt,                         &
@@ -109,7 +106,6 @@ contains
                                            cubic_coef_wt_3, cubic_coef_wt_4,                &
                                            cubic_indices_wt_1, cubic_indices_wt_2,          &
                                            cubic_indices_wt_3, cubic_indices_wt_4,          &
-                                           linear_coef_wt_1, linear_coef_wt_2,              &
                                            hermite,                                         &
                                            ndf_w2v, undf_w2v, map_w2v,                      &
                                            ndf_wt, undf_wt, map_wt,                         &

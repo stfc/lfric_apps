@@ -10,12 +10,10 @@ module tl_end_of_transport_step_alg_mod
 
   use base_mesh_config_mod,           only: topology, topology_non_periodic
   use boundaries_config_mod,          only: limited_area
-  use check_configuration_mod,        only: check_any_eqn_consistent,          &
-                                            check_any_wt_eqn_conservative
   use constants_mod,                  only: i_def, r_tran, l_def
   use end_of_transport_step_alg_mod,  only: build_up_flux
-  use transport_constants_mod,        only: get_directional_im3_div_r_tran
   use finite_element_config_mod,      only: element_order_h, element_order_v
+  use flux_precomputations_alg_mod,   only: flux_precomputations_type
   use fs_continuity_mod,              only: W2, W2H, W2V
   use function_space_mod,             only: function_space_type
   use function_space_collection_mod,  only: function_space_collection
@@ -27,13 +25,14 @@ module tl_end_of_transport_step_alg_mod
   use dg_matrix_vector_kernel_mod,    only: dg_matrix_vector_kernel_type
   use r_tran_field_mod,               only: r_tran_field_type
   use r_tran_operator_mod,            only: r_tran_operator_type
+  use split_transport_utils_mod,      only: get_num_split_steps
   use transport_config_mod,           only: dry_field_name
+  use transport_constants_mod,        only: get_directional_im3_div_r_tran
+  use transport_counter_mod,          only: transport_counter_type
   use transport_enumerated_types_mod, only: direction_3d, &
                                             direction_h,  &
                                             direction_v
   use transport_metadata_mod,         only: transport_metadata_type
-  use tl_transport_runtime_collection_mod, &
-                                      only: tl_transport_runtime
 
   implicit none
 
@@ -57,15 +56,18 @@ contains
   !!                                   to be computed.
   !> @param[in]     field_in           Field at the beginning of this transport
   !!                                   step.
+  !> @param[in]     transport_counter  Object storing transport counters
   !> @param[in]     transport_metadata Contains the configuration options for
   !!                                   transporting the field
-  subroutine tl_end_of_advective_step_alg(field_np1, field_in, transport_metadata)
+  subroutine tl_end_of_advective_step_alg(field_np1, field_in,                 &
+                                          transport_counter, transport_metadata)
 
     implicit none
 
     ! Arguments
     type(r_tran_field_type),       intent(inout) :: field_np1
     type(r_tran_field_type),       intent(in)    :: field_in
+    type(transport_counter_type),  intent(in)    :: transport_counter
     type(transport_metadata_type), intent(in)    :: transport_metadata
 
     ! Enforce a min value if required
@@ -90,38 +92,57 @@ contains
   !!          - saving any fields (such as mass fluxes) that may be used later
   !!          However, some of these are not yet implemented in the tangent
   !!          linear model.
-  !> @param[in,out] field_np1          Field at the end of the transport step
-  !!                                   to be computed.
-  !> @param[in]     field_in           Field at the beginning of this transport
-  !!                                   step, which may be saved in the transport
-  !!                                   runtime object if this field is the "dry
-  !!                                   field".
-  !> @param[in]     flux               The mass flux for this transport step.
-  !> @param[in]     transport_metadata Contains the configuration options for
-  !!                                   transporting the field
-  subroutine tl_end_of_conservative_step_alg(field_np1, field_in, flux, &
+  !> @param[in,out] field_np1             Field at the end of the transport step
+  !!                                      to be computed.
+  !> @param[in]     field_in              Field at the beginning of this
+  !!                                      transport step
+  !> @param[in]     flux_ls_wind          The mass flux for this transport step,
+  !!                                      from transport by the linear wind
+  !> @param[in]     flux_pert_wind        The mass flux for this transport step,
+  !!                                      from transport by the perturbed wind
+  !> @param[in,out] flux_precomp_ls_wind  Object containing precomputations for
+  !!                                      transport, relating to the linear wind
+  !> @param[in,out] flux_precomp_pert_wind
+  !!                                      Object containing precomputations for
+  !!                                      transport, relating to perturbed wind
+  !> @param[in,out] transport_counter     Object storing transport counters and
+  !!                                      the fluxes to build up through each
+  !!                                      transport step
+  !> @param[in]     transport_metadata    Contains the configuration options for
+  !!                                      transporting the field
+  subroutine tl_end_of_conservative_step_alg(field_np1, field_in,              &
+                                             flux_ls_wind, flux_pert_wind,     &
+                                             flux_precomp_ls_wind,             &
+                                             flux_precomp_pert_wind,           &
+                                             transport_counter,                &
                                              transport_metadata)
+
+    use transport_config_mod, only: cheap_update, dry_field_name
 
     implicit none
 
     ! Arguments
-    type(r_tran_field_type),       intent(inout) :: field_np1
-    type(r_tran_field_type),       intent(in)    :: field_in
-    type(r_tran_field_type),       intent(in)    :: flux
-    type(transport_metadata_type), intent(in)    :: transport_metadata
+    type(r_tran_field_type),         intent(inout) :: field_np1
+    type(r_tran_field_type),         intent(in)    :: field_in
+    type(r_tran_field_type),         intent(in)    :: flux_pert_wind
+    type(r_tran_field_type),         intent(in)    :: flux_ls_wind
+    type(flux_precomputations_type), intent(inout) :: flux_precomp_ls_wind
+    type(flux_precomputations_type), intent(inout) :: flux_precomp_pert_wind
+    type(transport_counter_type),    intent(inout) :: transport_counter
+    type(transport_metadata_type),   intent(in)    :: transport_metadata
 
     ! Internal variables
-    integer(kind=i_def)                   :: mesh_id
-    type(mesh_type),              pointer :: mesh => null()
+    integer(kind=i_def)                   :: mesh_id, step
+    integer(kind=i_def)                   :: ref_step
+    type(mesh_type),              pointer :: mesh
     type(r_tran_field_type)               :: increment
-    type(r_tran_field_type)               :: sum_flux
-    type(r_tran_field_type),      pointer :: field_start => null()
-    type(r_tran_operator_type),   pointer :: div => null()
-    type(function_space_type),    pointer :: w2_fs => null()
+    type(r_tran_field_type)               :: flux, sum_flux
+    type(r_tran_field_type),      pointer :: field_start
+    type(r_tran_operator_type),   pointer :: div
+    type(function_space_type),    pointer :: w2_fs
     logical(kind=l_def)                   :: enforce_min_value
     logical(kind=l_def)                   :: final_split_step
     logical(kind=l_def)                   :: is_dry_field
-    logical(kind=l_def)                   :: store_dry_field
 
     ! Extract transport runtime
     mesh => field_np1%get_mesh()
@@ -130,10 +151,13 @@ contains
     is_dry_field = (trim(transport_metadata%get_name()) == trim(dry_field_name))
 
     ! Determine whether this is the final split step
-    final_split_step = ( tl_transport_runtime%get_tracer_step_ctr() &
-                         == tl_transport_runtime%get_num_dry_steps() )
+    step = transport_counter%get_split_step_of_substep_counter()
+    final_split_step = ( step == get_num_split_steps(transport_metadata%get_splitting()) )
 
-    if (.not. final_split_step) call tl_transport_runtime%set_flux(flux)
+    ! Combine fluxes from each part of the calculation
+    call flux%initialise( flux_ls_wind%get_function_space() )
+    call invoke( X_plus_Y(flux, flux_ls_wind, flux_pert_wind))
+    if (.not. final_split_step) call transport_counter%set_flux(flux)
 
     ! ------------------------------------------------------------------------ !
     ! Compute increment from all split steps
@@ -141,7 +165,7 @@ contains
 
     if ( final_split_step ) then
 
-      field_start => tl_transport_runtime%get_field_n()
+      field_start => transport_counter%get_field_n()
       div => get_directional_im3_div_r_tran(mesh_id, direction_3d)
       w2_fs => function_space_collection%get_fs(mesh, element_order_h, element_order_v, W2)
       call increment%initialise(field_np1%get_function_space())
@@ -149,7 +173,7 @@ contains
 
       ! Get final field at end of transport
       ! First sum the fluxes from all previous steps
-      call build_up_flux(sum_flux, flux, tl_transport_runtime, transport_metadata)
+      call build_up_flux(sum_flux, flux, transport_counter, transport_metadata)
 
       ! ---------------------------------------------------------------------- !
       ! Conservative clipping by limiting flux, if specified
@@ -187,24 +211,17 @@ contains
     ! ------------------------------------------------------------------------ !
     ! Store dry field details
     ! ------------------------------------------------------------------------ !
-    ! Store field in transport_runtime for conservative transport
-    ! if this is the underlying dry field
+    ! Store flux in flux_precomputations for conservative tracer transport
+    ! if this is the underlying reference field
     if ( is_dry_field ) then
-      store_dry_field = (                                                      &
-          check_any_eqn_consistent() .or. check_any_wt_eqn_conservative()      &
-      )
-    end if
-    if ( is_dry_field .and. store_dry_field ) then
-      call log_event(                                                          &
-              'T.L.: storage of dry fields not yet implemented',               &
-              LOG_LEVEL_ERROR                                                  &
-      )
-    end if
+      ref_step = transport_counter%get_split_step_of_whole_step_counter()
+      call flux_precomp_ls_wind%initialise_step(ref_step, flux_ls_wind)
+      call flux_precomp_pert_wind%initialise_step(ref_step, flux_pert_wind)
 
-    ! Increment the step counter in the transport runtime
-    call tl_transport_runtime%inc_tracer_step_ctr()
-
-    nullify(mesh, div, field_start)
+      if ( final_split_step .and. cheap_update ) then
+        call log_event('Cheap update not implement for T.L. model', LOG_LEVEL_ERROR)
+      end if
+    end if
 
   end subroutine tl_end_of_conservative_step_alg
 

@@ -8,7 +8,7 @@
 !!        3D equations.
 module semi_implicit_timestep_alg_mod
 
-  use constants_mod,             only: i_def, r_def, l_def
+  use constants_mod,             only: i_def, r_def, l_def, r_tran
   use fs_continuity_mod,         only: Wtheta, W2
   use log_mod,                   only: log_event,         &
                                        log_scratch_space, &
@@ -76,6 +76,7 @@ module semi_implicit_timestep_alg_mod
   use field_mod,                  only: field_type
   use field_parent_mod,           only: field_parent_type
   use field_collection_mod,       only: field_collection_type
+  use r_tran_field_mod,           only: r_tran_field_type
   use io_value_mod,               only: io_value_type, &
                                         get_io_value
   use driver_modeldb_mod,         only: modeldb_type
@@ -171,6 +172,8 @@ module semi_implicit_timestep_alg_mod
     type( field_type ) :: wind_prev  ! u from previous iteration used for cheap transport update
     type( field_type ) :: wind_fv_inc  ! u fv transport increment used for cheap transport update
     type( field_type ) :: theta_fv_inc ! theta fv transport increment to change to weak form
+
+    type( r_tran_field_type ) :: total_dry_flux
 
     type( field_type ) :: visc_m ! Smagorinsky diffusion coefficient for momentum
     type( field_type ) :: visc_h ! Smagorinsky diffusion coefficient for scalars
@@ -460,6 +463,8 @@ contains
     call u%copy_field_properties(self%wind_prev)
     call u%copy_field_properties(self%wind_fv_inc)
 
+    call self%total_dry_flux%initialise( u%get_function_space() )
+
     call clone_bundle(mr, self%mr_n, nummr)
     call clone_bundle(mr, self%mr_after_slow, nummr)
     if (self%use_moisture) then
@@ -671,7 +676,8 @@ contains
                  setval_X(self%state(igh_u), u    ), &
                  setval_X(self%state(igh_t), theta), &
                  setval_X(self%state(igh_d), rho  ), &
-                 setval_X(self%state(igh_p), exner) )
+                 setval_X(self%state(igh_p), exner), &
+                 setval_c(self%total_dry_flux, 0.0_r_tran) )
 
     !--------------------------------------------------------------------
     ! Compute the semi-implicit operators
@@ -784,21 +790,16 @@ contains
     outer_dynamics_loop: do outer = 1,outer_iterations
 
       if (use_wavedynamics) then
-        call gungho_transport_control_alg( self%rhs_adv, self%advected_state,      &
-                                           self%state(igh_u), self%state_n(igh_u), &
-                                           mr, mr_to_adv, model_clock,             &
-                                           outer, cheap_update,                    &
-                                           self%adv_inc_prev, self%wind_prev,      &
-                                           self%state_after_slow(igh_d),           &
-                                           adv_tracer_all_outer,                   &
-                                           adv_tracer_all_outer_after_slow,        &
-                                           adv_tracer_last_outer,                  &
-                                           adv_tracer_last_outer_after_slow,       &
-                                           con_tracer_all_outer,                   &
-                                           con_tracer_all_outer_after_slow,        &
-                                           con_tracer_last_outer,                  &
-                                           con_tracer_last_outer_after_slow        &
-                                           )
+        call gungho_transport_control_alg(                                     &
+                self%rhs_adv, self%advected_state, self%state(igh_u),          &
+                self%state_n(igh_u), mr, mr_to_adv, model_clock,               &
+                outer, cheap_update, self%adv_inc_prev, self%wind_prev,        &
+                self%state_after_slow(igh_d), self%total_dry_flux,             &
+                adv_tracer_all_outer, adv_tracer_all_outer_after_slow,         &
+                adv_tracer_last_outer, adv_tracer_last_outer_after_slow,       &
+                con_tracer_all_outer, con_tracer_all_outer_after_slow,         &
+                con_tracer_last_outer, con_tracer_last_outer_after_slow        &
+        )
 
         if ( cheap_update .AND. (outer < outer_iterations) ) then
           ! Copy transport increments to use in next outer iteration
@@ -1129,6 +1130,7 @@ contains
 
     call self%dtheta%field_final()
     call self%du%field_final()
+    call self%total_dry_flux%field_final()
 
     if ( use_physics ) then
       call self%visc_m%field_final()

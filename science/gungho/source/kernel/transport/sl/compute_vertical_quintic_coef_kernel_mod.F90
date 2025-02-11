@@ -32,7 +32,7 @@ module compute_vertical_quintic_coef_kernel_mod
   !>                                      by the PSy layer.
   type, public, extends(kernel_type) :: compute_vertical_quintic_coef_kernel_type
     private
-    type(arg_type) :: meta_args(16) = (/                                       &
+    type(arg_type) :: meta_args(14) = (/                                       &
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,  W2v),                       & ! dep_dist_z
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,  Wtheta),                    & ! theta_height
          arg_type(GH_FIELD,  GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! quintic_coef
@@ -46,9 +46,7 @@ module compute_vertical_quintic_coef_kernel_mod
          arg_type(GH_FIELD,  GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! quintic_indices
          arg_type(GH_FIELD,  GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! quintic_indices
          arg_type(GH_FIELD,  GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! quintic_indices
-         arg_type(GH_FIELD,  GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! quintic_indices
-         arg_type(GH_FIELD,  GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! linear_coef
-         arg_type(GH_FIELD,  GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_1)  & ! linear_coef
+         arg_type(GH_FIELD,  GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_1)  & ! quintic_indices
          /)
     integer :: operates_on = CELL_COLUMN
   contains
@@ -72,7 +70,6 @@ module compute_vertical_quintic_coef_kernel_mod
   !> @param[inout]  quintic_coef  The cubic interpolation coefficients (1-6)
   !> @param[inout]  quintic_indices
   !!                              The cubic interpolation indices (1-6)
-  !> @param[inout]  linear_coef   The linear interpolation coefficients (1-2, used for monotonicity)
   !> @param[in]     ndf_w2v       The number of degrees of freedom per cell
   !!                              on W2v space
   !> @param[in]     undf_w2v      The number of unique degrees of freedom
@@ -102,7 +99,6 @@ module compute_vertical_quintic_coef_kernel_mod
                                                  quintic_indices_1, quintic_indices_2, &
                                                  quintic_indices_3, quintic_indices_4, &
                                                  quintic_indices_5, quintic_indices_6, &
-                                                 linear_coef_1, linear_coef_2,         &
                                                  ndf_w2v, undf_w2v, map_w2v,           &
                                                  ndf_wt, undf_wt, map_wt,              &
                                                  ndf_wq, undf_wq, map_wq )
@@ -134,8 +130,6 @@ module compute_vertical_quintic_coef_kernel_mod
     integer(kind=i_def), dimension(undf_wq),  intent(inout) :: quintic_indices_4
     integer(kind=i_def), dimension(undf_wq),  intent(inout) :: quintic_indices_5
     integer(kind=i_def), dimension(undf_wq),  intent(inout) :: quintic_indices_6
-    real(kind=r_tran),   dimension(undf_wq),  intent(inout) :: linear_coef_1
-    real(kind=r_tran),   dimension(undf_wq),  intent(inout) :: linear_coef_2
 
     ! Local arrays and indices
     real(kind=r_tran),  dimension(nlayers+1)    :: zm, zmd
@@ -144,7 +138,6 @@ module compute_vertical_quintic_coef_kernel_mod
     real(kind=r_tran)                           :: d, r, sr
     real(kind=r_tran),   dimension(6,nlayers+1) :: qc
     integer(kind=i_def), dimension(6,nlayers+1) :: sq
-    real(kind=r_tran),   dimension(2,nlayers+1) :: cl
     real(kind=r_tran),   dimension(nlayers+1)   :: dz
 
     ! nl = nlayers-1  for W3
@@ -196,7 +189,7 @@ module compute_vertical_quintic_coef_kernel_mod
       end do
       dz(nz) = dz(nz - 1)
       ! Compute the quintic-interpolation coefficients
-      call compute_quintic_coeffs(zmd,zm,dz,sq,qc,cl,nz,nz)
+      call compute_quintic_coeffs(zmd,zm,dz,sq,qc,nz,nz)
     else
       ! Wtheta field:
       ! Define the spacing dz between zl-points
@@ -205,7 +198,7 @@ module compute_vertical_quintic_coef_kernel_mod
       end do
       dz(nzl) = dz(nzl-1)
       ! Compute the quintic-interpolation coefficients
-      call compute_quintic_coeffs(zld,zl,dz,sq,qc,cl,nzl,nzl)
+      call compute_quintic_coeffs(zld,zl,dz,sq,qc,nzl,nzl)
     end if
 
     ! Coeffs are W3/Wtheta fields
@@ -222,8 +215,6 @@ module compute_vertical_quintic_coef_kernel_mod
       quintic_indices_4(map_wq(1)+k) = sq(4,k+1)
       quintic_indices_5(map_wq(1)+k) = sq(5,k+1)
       quintic_indices_6(map_wq(1)+k) = sq(6,k+1)
-      linear_coef_1(map_wq(1)+k) = cl(1,k+1)
-      linear_coef_2(map_wq(1)+k) = cl(2,k+1)
     end do
 
   end subroutine compute_vertical_quintic_coef_code

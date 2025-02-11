@@ -11,8 +11,7 @@ module adjt_w3h_advective_update_alg_mod
   use function_space_mod,            only : function_space_type
   use mesh_mod,                      only : mesh_type
   use function_space_collection_mod, only : function_space_collection
-  use finite_element_config_mod,     only : element_order_h, &
-                                            element_order_v
+  use finite_element_config_mod,     only : element_order_h, element_order_v
   use fs_continuity_mod,             only : W2, W3
   use operator_mod,                  only : operator_type
   use constants_mod,                 only : i_def, r_def, r_tran
@@ -22,7 +21,7 @@ module adjt_w3h_advective_update_alg_mod
                                             LOG_LEVEL_INFO,   &
                                             LOG_LEVEL_DEBUG,  &
                                             log_scratch_space
-  use sci_fem_constants_mod,         only: get_inverse_mass_matrix
+  use sci_fem_constants_mod,         only : get_inverse_mass_matrix
 
   implicit none
 
@@ -65,6 +64,7 @@ module adjt_w3h_advective_update_alg_mod
     ! Inner product variables
     real(kind=r_def)             :: advective_increment_inner_prod
     real(kind=r_def)             :: tracer_inner_prod
+    real(kind=r_tran), parameter :: advective_increment_sf = 1.0E-10_r_tran
     real(kind=r_tran)            :: inner1
     real(kind=r_def)             :: adv_inc_adv_inc_inp_inner_prod
     real(kind=r_def)             :: tracer_tracer_input_inner_prod
@@ -75,10 +75,15 @@ module adjt_w3h_advective_update_alg_mod
     real(kind=r_tran)            :: machine_tol
     real(kind=r_tran)            :: relative_diff
 
-    vector_space_w3_md_ptr => function_space_collection % get_fs( mesh, element_order_h, element_order_v, &
-                                                                  W3, ndata, ndata_first = .false. )
-    vector_space_w3_ptr => function_space_collection % get_fs(mesh, element_order_h, element_order_v, W3)
-    vector_space_w2_ptr => function_space_collection % get_fs(mesh, element_order_h, element_order_v, W2)
+    vector_space_w3_md_ptr => function_space_collection % get_fs(              &
+        mesh, element_order_h, element_order_v, W3, ndata, ndata_first=.false. &
+    )
+    vector_space_w3_ptr => function_space_collection % get_fs(                 &
+        mesh, element_order_h, element_order_v, W3                             &
+    )
+    vector_space_w2_ptr => function_space_collection % get_fs(                 &
+        mesh, element_order_h, element_order_v, W2                             &
+    )
     call advective_increment % initialise( vector_space=vector_space_w3_ptr, name='advective_increment' )
     call tracer % initialise( vector_space=vector_space_w3_md_ptr, name='tracer ')
     call dummy_adcsp1 % initialise( vector_space=vector_space_w3_md_ptr, name='dummy_adcsp1' )
@@ -93,7 +98,7 @@ module adjt_w3h_advective_update_alg_mod
     ! Initialise arguments and call the tangent-linear kernel.
     call invoke( setval_random(advective_increment), setval_x(advective_increment_input, advective_increment), &
                  setval_random(tracer), setval_x(tracer_input, tracer), &
-                 setval_random(wind), inc_X_minus_a(wind, 0.5_r_def), inc_a_times_X(1e6_r_def, wind), &
+                 setval_random(wind), inc_X_minus_a(wind, 0.5_r_def), inc_a_times_X(1e6_r_tran, wind), &
                  w3h_advective_update_kernel_type( advective_increment, &
                                                    tracer, stencil_extent, &
                                                    wind, stencil_extent, &
@@ -102,14 +107,18 @@ module adjt_w3h_advective_update_alg_mod
                  x_innerproduct_x(tracer_inner_prod, tracer) )
 
     inner1 = 0.0_r_tran
-    inner1 = inner1 + real( advective_increment_inner_prod, r_tran )
+    inner1 = inner1 + real( advective_increment_inner_prod*advective_increment_sf, r_tran )
     inner1 = inner1 + real( tracer_inner_prod, r_tran )
     write(log_scratch_space, *) "adjt_w3h_advective_update inner products:"
     call log_event( log_scratch_space, LOG_LEVEL_DEBUG )
-    write(log_scratch_space, *) "advective_increment inner product = ", real( advective_increment_inner_prod, r_tran )
+    write(log_scratch_space, *) "advective_increment inner product = ", &
+                                real( advective_increment_inner_prod*advective_increment_sf, r_tran )
     call log_event( log_scratch_space, LOG_LEVEL_DEBUG )
     write(log_scratch_space, *) "tracer inner product = ", real( tracer_inner_prod, r_tran )
     call log_event( log_scratch_space, LOG_LEVEL_DEBUG )
+
+    ! Scaling fields
+    call invoke( inc_a_times_X( advective_increment_sf, advective_increment ) )
 
     adv_inc_adv_inc_inp_inner_prod = 0.0_r_def
     tracer_tracer_input_inner_prod = 0.0_r_def
@@ -144,3 +153,4 @@ module adjt_w3h_advective_update_alg_mod
   end subroutine adjt_w3h_advective_update_alg
 
 end module adjt_w3h_advective_update_alg_mod
+

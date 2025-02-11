@@ -10,7 +10,7 @@ module adj_wt_advective_update_alg_mod
   use check_configuration_mod,              only : get_required_stencil_depth
   use constants_mod,                        only : r_tran, i_def, l_def
   use r_tran_field_mod,                     only : r_tran_field_type
-  use finite_element_config_mod,            only : element_order_h, &
+  use finite_element_config_mod,            only : element_order_h,            &
                                                    element_order_v
   use fs_continuity_mod,                    only : Wtheta
   use function_space_mod,                   only : function_space_type
@@ -25,8 +25,6 @@ module adj_wt_advective_update_alg_mod
   use log_mod,                              only : log_event,         &
                                                    LOG_LEVEL_ERROR
   use transport_metadata_mod,               only : transport_metadata_type
-  use transport_runtime_alg_mod,            only : transport_runtime_type
-  use transport_runtime_collection_mod,     only : get_transport_runtime
   use adj_poly_adv_update_kernel_mod,       only : adj_poly_adv_update_kernel_type
   use adj_poly1d_reconstruction_kernel_mod, only : adj_poly1d_reconstruction_kernel_type
   use adj_poly2d_reconstruction_kernel_mod, only : adj_poly2d_reconstruction_kernel_type
@@ -96,8 +94,9 @@ contains
     ! Compute reconstruction on a Wtheta multidata field
     ! each Wt point contains 4 values assigned to each edge,
     ! in the order (W,S,E,N) which is the same order as a W2 field
-    multidata_fs => &
-      function_space_collection%get_fs( mesh, element_order_h, element_order_v, Wtheta, 4, ndata_first=.false. )
+    multidata_fs => function_space_collection%get_fs(                          &
+        mesh, element_order_h, element_order_v, Wtheta, 4, ndata_first=.false. &
+    )
     call h_reconstruction%initialise( multidata_fs )
     call invoke( setval_c( field_big_halo, 0.0_r_tran ),            &
                  setval_c( h_reconstruction, 0.0_r_tran ) )

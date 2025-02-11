@@ -34,6 +34,7 @@ module substep_transport_alg_mod
                                                horizontal_limit_cap
   use transport_config_mod,              only: dep_pt_stencil_extent,  &
                                                substep_transport,      &
+                                               substep_transport_off,  &
                                                substep_transport_two,  &
                                                substep_transport_four, &
                                                substep_transport_adaptive
@@ -204,6 +205,10 @@ contains
 
       ! Set number of substeps
       substeps = max( steps_courant, steps_lipschitz )
+
+    case ( substep_transport_off )
+      ! Set number of substeps to 1
+      substeps = 1_i_def
 
     case ( substep_transport_two )
       ! Set number of substeps to 2 for debugging

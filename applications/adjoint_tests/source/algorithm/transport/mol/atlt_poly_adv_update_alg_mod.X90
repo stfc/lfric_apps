@@ -11,8 +11,7 @@ module atlt_poly_adv_update_alg_mod
   use function_space_mod,            only : function_space_type
   use mesh_mod,                      only : mesh_type
   use function_space_collection_mod, only : function_space_collection
-  use finite_element_config_mod,     only : element_order_h, &
-                                            element_order_v
+  use finite_element_config_mod,     only : element_order_h, element_order_v
   use fs_continuity_mod,             only : W2H, Wtheta
   use constants_mod,                 only : i_def, r_def, r_tran
   use log_mod,                       only : log_event,       &
@@ -67,9 +66,15 @@ module atlt_poly_adv_update_alg_mod
     real(kind=r_tran)            :: machine_tol
     real(kind=r_tran)            :: relative_diff
 
-    vector_space_w2h_ptr => function_space_collection % get_fs(mesh, element_order_h, element_order_v, W2H)
-    vector_space_wt_md_ptr => function_space_collection % get_fs(mesh, element_order_h, element_order_v, Wtheta, ndata)
-    vector_space_wtheta_ptr => function_space_collection % get_fs(mesh, element_order_h, element_order_v, Wtheta)
+    vector_space_w2h_ptr => function_space_collection % get_fs(                &
+        mesh, element_order_h, element_order_v, W2H                            &
+    )
+    vector_space_wt_md_ptr => function_space_collection % get_fs(              &
+        mesh, element_order_h, element_order_v, Wtheta, ndata                  &
+    )
+    vector_space_wtheta_ptr => function_space_collection % get_fs(             &
+        mesh, element_order_h, element_order_v, Wtheta                         &
+    )
     call advective % initialise( vector_space=vector_space_wtheta_ptr, name='advective' )
     call wind % initialise( vector_space=vector_space_w2h_ptr, name='wind' )
     call wind % copy_field_properties( dummy_w2h )
@@ -106,6 +111,10 @@ module atlt_poly_adv_update_alg_mod
     advective_advective_input_inner_prod = 0.0_r_def
     wind_wind_input_inner_prod = 0.0_r_def
 
+!    call invoke( atl_poly_adv_update_kernel_type( advective,                         &
+!                                                  ls_reconstruction, stencil_extent, &
+!                                                  wind, dummy_w2h, stencil_extent,   &
+!                                                  wind_dir ) )
     call invoke_atl_poly_adv_update_kernel_type( advective,         &
                                                  ls_reconstruction, &
                                                  wind, dummy_w2h,   &

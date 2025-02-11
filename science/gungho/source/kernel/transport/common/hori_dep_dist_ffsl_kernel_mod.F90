@@ -154,6 +154,10 @@ subroutine hori_dep_dist_ffsl_code( nlayers,             &
   integer(kind=i_def) :: stencil_half, lam_edge_size
   integer(kind=i_def) :: local_dofs_x(2), local_dofs_y(2)
 
+  ! Factor used to ensure consistency of fractional flux if
+  ! there are any floating point rounding errors
+  integer(kind=i_def) :: rounding_factor
+
   ! x-direction
   local_dofs_x = (/ W, E /)
   local_dofs_y = (/ S, N /)
@@ -268,8 +272,12 @@ subroutine hori_dep_dist_ffsl_code( nlayers,             &
         end if
 
         ! Set the values of the output fields
-        frac_dry_flux(idx_w2h+k) = frac_flux_face_i
         dep_dist(idx_w2h+k) = real(sign_flux*num_int_cells, r_tran) + frac_dep_dist
+
+        ! If floating point rounding puts the dep_dist into the next integer value
+        ! then set the fractional part back to zero with rounding_factor
+        rounding_factor = 1 - (abs(int(dep_dist(idx_w2h+k), i_def)) - abs(num_int_cells))
+        frac_dry_flux(idx_w2h+k) = frac_flux_face_i*rounding_factor
       end do
     end do
   end if
@@ -384,9 +392,12 @@ subroutine hori_dep_dist_ffsl_code( nlayers,             &
 
         ! Set the values of the output fields
         ! NB: minus signs to return to conventional y-direction
-        frac_dry_flux(idx_w2h+k) = -frac_flux_face_i
         dep_dist(idx_w2h+k) = - (real(sign_flux*num_int_cells, r_tran) + frac_dep_dist)
 
+        ! If floating point rounding puts the dep_dist into the next integer value
+        ! then set the fractional part back to zero with rounding factor
+        rounding_factor = 1 - (abs(int(dep_dist(idx_w2h+k), i_def)) - abs(num_int_cells))
+        frac_dry_flux(idx_w2h+k) = -frac_flux_face_i*rounding_factor
       end do
     end do
 

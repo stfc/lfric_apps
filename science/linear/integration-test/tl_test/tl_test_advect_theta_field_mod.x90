@@ -29,15 +29,13 @@ module tl_test_advect_theta_field_mod
                                       only: gungho_transport_control_alg_init, &
                                             gungho_transport_control_alg
   use tl_transport_control_alg_mod,   only: tl_transport_control_alg
+  use transport_controller_mod,       only: transport_controller_type
+  use tl_transport_controller_mod,    only: tl_transport_controller_type
   use transport_field_mod,            only: transport_field
   use tl_transport_field_mod,         only: tl_transport_field
   use transport_metadata_mod,         only: transport_metadata_type
   use transport_metadata_collection_mod, &
                                       only: transport_metadata_collection
-  use transport_runtime_collection_mod, &
-                                      only: set_transport_runtime
-  use tl_transport_runtime_collection_mod, &
-                                      only: tl_transport_runtime
   use tl_test_convergence_rate_check, only: convergence_rate_check
 
   implicit none
@@ -64,16 +62,20 @@ module tl_test_advect_theta_field_mod
 
     character(str_def) :: label = "advect_theta_field"
 
-    type(field_collection_type),   pointer :: prognostic_fields => null()
-    type(field_collection_type),   pointer :: ls_fields
-    type(transport_metadata_type), pointer :: transport_metadata
+    type(field_collection_type),     pointer :: prognostic_fields
+    type(field_collection_type),     pointer :: ls_fields
+    type(transport_metadata_type),   pointer :: transport_metadata
+    type(transport_controller_type), pointer :: transport_controller
+    type(transport_controller_type)          :: n_transport_controller
+    type(tl_transport_controller_type)       :: tl_transport_controller
 
     ! Input
-    type(field_type), pointer :: n_u => null()
-    type(field_type), pointer :: ls_u => null()
-    type(field_type), pointer :: ls_rho => null()
-    type(field_type), pointer :: n_theta => null()
-    type(field_type), pointer :: ls_theta => null()
+    type(field_type), pointer :: n_u
+    type(field_type), pointer :: ls_u
+    type(field_type), pointer :: n_rho
+    type(field_type), pointer :: ls_rho
+    type(field_type), pointer :: n_theta
+    type(field_type), pointer :: ls_theta
     type(field_type) :: p_u, p_theta
 
     ! Output
@@ -90,7 +92,6 @@ module tl_test_advect_theta_field_mod
 
     real(r_def) :: norm_diff, norm_diff_prev
     real(r_def) :: gamma_u, gamma_theta
-    real(r_def) :: cast_dt
 
     integer :: n
     real(r_def), parameter :: tol = 1.e-3_r_def
@@ -107,6 +108,7 @@ module tl_test_advect_theta_field_mod
     call ls_fields%get_field('ls_u', ls_u)
     call prognostic_fields%get_field('theta', n_theta)
     call ls_fields%get_field('ls_theta', ls_theta)
+    call prognostic_fields%get_field('rho', n_rho)
     call ls_fields%get_field('ls_rho', ls_rho)
     call p_u%initialise( vector_space = &
       function_space_collection%get_fs(mesh, element_order_h, element_order_v, W2) )
@@ -138,20 +140,22 @@ module tl_test_advect_theta_field_mod
       function_space_collection%get_fs(mesh, element_order_h, element_order_v, Wtheta) )
 
     ! Init stuff
-    call gungho_transport_control_alg_init( mesh )
-    call set_transport_runtime( ls_u, ls_u, modeldb%clock, 1_i_def, &
-                                cheap_update = .false., rho_d_n_rdef=ls_rho )
+    call gungho_transport_control_alg_init(mesh)
+    call tl_transport_controller%initialise(                                   &
+            modeldb%clock, n_rho, ls_rho, n_u, n_u, ls_u, ls_u                 &
+    )
     transport_metadata => transport_metadata_collection%get_transport_metadata('potential_temperature')
-
-    cast_dt = real(modeldb%clock%get_seconds_per_step(), r_def)
 
     ! Taylor Remainder Convergence Test
     call invoke( assign_field_random_kernel_type( random_u, 1.0_r_def ),     &
                  assign_field_random_kernel_type( random_theta, 1.0_r_def ), &
                  setval_C( n1_advection_inc, 0.0_r_def ) )
 
-    call transport_field( ls_theta_np1, ls_theta, cast_dt, transport_metadata )
+    transport_controller => tl_transport_controller%get_ls_wind_ls_rho_controller()
+    call transport_field( ls_theta_np1, ls_theta, transport_controller, transport_metadata )
     call invoke( X_minus_Y( n1_advection_inc, ls_theta_np1, ls_theta ) )
+
+    call tl_transport_controller%finalise()
 
     gamma_u = 1.e8_r_def
     gamma_theta = 1.e2_r_def
@@ -168,20 +172,17 @@ module tl_test_advect_theta_field_mod
                    inc_X_plus_Y( n_u, p_u ),                  &
                    inc_X_plus_Y( n_theta, p_theta ) )
 
-      call set_transport_runtime(n_u, n_u, modeldb%clock, 1_i_def, &
-                                 cheap_update = .false., rho_d_n_rdef=ls_rho)
-
-      call transport_field( n_theta_np1, n_theta, cast_dt, transport_metadata )
+      call n_transport_controller%initialise(modeldb%clock, n_rho, n_u)
+      call transport_field( n_theta_np1, n_theta, n_transport_controller, transport_metadata )
       call invoke( X_minus_Y( n2_advection_inc, n_theta_np1, n_theta ) )
 
-      call set_transport_runtime(ls_u, ls_u, modeldb%clock, 1_i_def, &
-                                 cheap_update = .false., rho_d_n_rdef=ls_rho)
-      call tl_transport_runtime%initialise(p_u, p_u, modeldb%clock, 1_i_def, &
-                                           cheap_update = .false., rho_d_n_rdef=ls_rho)
-
-
-      call tl_transport_field( p_theta_np1, p_theta, ls_theta, &
-                               cast_dt, transport_metadata )
+      call tl_transport_controller%initialise(                                 &
+              modeldb%clock, n_rho, ls_rho, p_u, p_u, ls_u, ls_u               &
+      )
+      call tl_transport_field(                                                 &
+              p_theta_np1, p_theta, ls_theta, tl_transport_controller,         &
+              transport_metadata                                               &
+      )
       call invoke( X_minus_Y( p_advection_inc, p_theta_np1, p_theta ) )
 
       call invoke( X_minus_Y( diff, n2_advection_inc, n1_advection_inc ), &
@@ -200,6 +201,9 @@ module tl_test_advect_theta_field_mod
       end if
 
       norm_diff_prev = norm_diff
+
+      call n_transport_controller%finalise()
+      call tl_transport_controller%finalise()
     end do
 
   end subroutine test_advect_theta_field

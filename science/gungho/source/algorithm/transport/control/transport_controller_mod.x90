@@ -1,0 +1,625 @@
+!-----------------------------------------------------------------------------
+! (c) Crown copyright 2025 Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-----------------------------------------------------------------------------
+!> @brief Defines an object to control different transport options
+!> @details This module defines the transport_controller object, which is an
+!!          object encapsulating different entities that are used to define and
+!!          control the transport scheme used for different variables.
+!!          For instance, this object contains a counter of different transport
+!!          steps, can hold the metadata defining the options used in the
+!!          transport scheme and also contains pre-computed fields.
+
+module transport_controller_mod
+
+  ! Infrastructure
+  use constants_mod,                  only: i_def, l_def, r_tran
+  use copy_field_alg_mod,             only: copy_field
+  use extrusion_mod,                  only: SHIFTED, TWOD
+  use field_mod,                      only: field_type
+  use sci_field_minmax_alg_mod,       only: get_field_minmax
+  use fs_continuity_mod,              only: W3, W2H, W2V
+  use function_space_mod,             only: function_space_type
+  use function_space_collection_mod,  only: function_space_collection
+  use integer_field_mod,              only: integer_field_type
+  use mesh_mod,                       only: mesh_type
+  use log_mod,                        only: log_event,                         &
+                                            LOG_LEVEL_INFO,                    &
+                                            LOG_LEVEL_ERROR,                   &
+                                            LOG_LEVEL_WARNING,                 &
+                                            log_level
+  use mesh_collection_mod,            only: mesh_collection
+  use model_clock_mod,                only: model_clock_type
+  use r_tran_field_mod,               only: r_tran_field_type
+
+  ! Pointers to other objects
+  use sci_geometric_constants_mod,    only: get_face_selector_ew,              &
+                                            get_face_selector_ns
+  use transport_constants_mod,        only: get_detj_at_w3_r_tran
+
+  ! Transport objects
+  use flux_precomputations_alg_mod,   only: flux_precomputations_type
+  use transport_counter_mod,          only: transport_counter_type
+  use transport_metadata_mod,         only: transport_metadata_type
+  use wind_precomputations_alg_mod,   only: wind_precomputations_type
+
+  ! Algorithms
+  use lipschitz_diag_alg_mod,         only: lipschitz_diag_alg
+  use substep_transport_alg_mod,      only: substep_transport_alg
+
+  ! Kernels
+  use split_w2_field_kernel_mod,      only: split_w2_field_kernel_type
+  use watkins_kernel_mod,             only: watkins_kernel_type
+
+  implicit none
+
+  private
+
+  ! Public types
+  type, public :: transport_controller_type
+
+    private
+
+    real(kind=r_tran)   :: dt_substep
+    integer(kind=i_def) :: num_substeps = 1
+    logical(kind=l_def) :: outer_set = .false.
+    integer(kind=i_def) :: outer
+    logical(kind=l_def) :: cheap_update_step = .false.
+
+    type(transport_counter_type)           :: counter
+    type(transport_metadata_type), pointer :: metadata => null()
+    type(wind_precomputations_type)        :: wind_precomputations
+    type(flux_precomputations_type)        :: ffsl_precomputations
+    type(flux_precomputations_type)        :: flux_precomputations
+
+    ! Fields to used in initialised precomputation objects
+    type(r_tran_field_type), allocatable :: wind_n_rtran
+    type(r_tran_field_type), allocatable :: wind_np1_rtran
+    type(r_tran_field_type), allocatable :: transporting_wind
+    type(r_tran_field_type), allocatable :: ref_field_rtran
+
+
+    contains
+
+    procedure, public  :: initialise
+    procedure, public  :: before_transport_field
+    procedure, public  :: after_transport_field
+    procedure, public  :: get_cheap_update_step
+    procedure, public  :: get_transport_counter
+    procedure, public  :: get_transport_metadata
+    procedure, public  :: get_wind_precomputations
+    procedure, public  :: get_ffsl_precomputations
+    procedure, public  :: get_flux_precomputations
+    procedure, public  :: initialise_flux_precomputations
+    procedure, public  :: finalise
+    final              :: destroy_transport_controller
+
+  end type transport_controller_type
+
+contains
+
+  !> @brief Initialises the transport_controller object
+  !> @details The transport controller object is the highest level object, which
+  !!          is passed through all levels of the transport code. It contains
+  !!          all of the information used to perform individual transport steps,
+  !!          such as the metadata, step counters, and fields pre-computed from
+  !!          the transporting wind.
+  !!
+  !!          This initialisation routine sets up the object for given (outer
+  !!          loop) transport of multiple variables, by:
+  !!          - determining the necessary number of transport substeps
+  !!          - initialising precomputation objects
+  !> @param[in] model_clock        Tracks the time within the model
+  !> @param[in] ref_field_rdef     The reference density to use for conservative
+  !!                               transport of tracers. This argument must be
+  !!                               specified to perform conservative transport
+  !!                               of tracers.
+  !> @param[in] wind_n_rdef        Wind at n-th time level. If wind_np1 is not
+  !!                               provided then this is taken to be the
+  !!                               transporting wind.
+  !> @param[in] wind_np1_rdef      Optional, wind at (n+1)-th time level
+  !> @param[in] outer              Optional, index of outer loop of the semi-
+  !!                               implicit time step, which can be used to
+  !!                               determine transport options that differ
+  !!                               between different iterations
+  !> @param[in] cheap_update_step  Optional, flag indicating whether this is
+  !!                               a "cheap update" transport step, in which
+  !!                               the transporting wind is the *difference*
+  !!                               in wind from the previous step, rather than
+  !!                               the full transport wind.
+  subroutine initialise(self, model_clock, ref_field_rdef, wind_n_rdef,        &
+                        wind_np1_rdef, outer, cheap_update_step)
+
+    use transport_config_mod,           only: ffsl_unity_3d,                   &
+                                              adjust_vhv_wind,                 &
+                                              substep_transport,               &
+                                              substep_transport_two,           &
+                                              substep_transport_four,          &
+                                              substep_transport_adaptive
+    use transport_enumerated_types_mod, only: splitting_strang_vhv
+
+    implicit none
+
+    class(transport_controller_type), intent(inout) :: self
+    class(model_clock_type),  target, intent(in)    :: model_clock
+    type(field_type),                 intent(in)    :: ref_field_rdef
+    type(field_type),                 intent(in)    :: wind_n_rdef
+    type(field_type),       optional, intent(in)    :: wind_np1_rdef
+    integer(kind=i_def),    optional, intent(in)    :: outer
+    logical(kind=l_def),    optional, intent(in)    :: cheap_update_step
+
+    ! Internal variables
+    type(r_tran_field_type)            :: wind_flux
+    type(r_tran_field_type)            :: hori_wind_flux
+    type(r_tran_field_type)            :: vert_wind_flux
+    type(r_tran_field_type)            :: step_1_wind_flux
+    type(r_tran_field_type)            :: step_3_wind_flux
+    type(r_tran_field_type),   pointer :: detj_at_w3
+    type(integer_field_type)           :: watkins_fail_field
+    type(integer_field_type),  pointer :: face_selector_ew
+    type(integer_field_type),  pointer :: face_selector_ns
+
+    type(mesh_type),           pointer :: mesh
+    type(mesh_type),           pointer :: twod_mesh
+    type(function_space_type), pointer :: w2_fs
+    type(function_space_type), pointer :: w2h_fs
+    type(function_space_type), pointer :: w2v_fs
+    type(function_space_type), pointer :: w3_fs
+    type(function_space_type), pointer :: w3_2d_fs
+
+    real(kind=r_tran)   :: dt_rtran, dt_one
+    integer(kind=i_def) :: mesh_id
+    integer(kind=i_def) :: splitting
+    integer(kind=i_def) :: watkins_fail, watkins_min
+    logical(kind=l_def) :: perform_watkins
+    logical(kind=l_def) :: fixed_multiple_substeps
+
+    ! Set options, to be passed to objects initialised later
+    if (present(outer)) then
+      self%outer_set = .true.
+      self%outer = outer
+    end if
+    if (present(cheap_update_step)) then
+      self%cheap_update_step = cheap_update_step
+    end if
+
+    dt_rtran = real(model_clock%get_seconds_per_step(), r_tran)
+
+    ! ------------------------------------------------------------------------ !
+    ! Convert winds to r_tran precision
+    ! ------------------------------------------------------------------------ !
+
+    allocate(self%wind_n_rtran)
+    allocate(self%transporting_wind)
+    allocate(self%ref_field_rtran)
+
+    w2_fs => wind_n_rdef%get_function_space()
+    call self%transporting_wind%initialise(w2_fs)
+    call self%wind_n_rtran%initialise(w2_fs)
+    call copy_field(wind_n_rdef, self%wind_n_rtran)
+
+    if (present(wind_np1_rdef)) then
+      allocate(self%wind_np1_rtran)
+      call self%wind_np1_rtran%initialise(w2_fs)
+      call copy_field(wind_np1_rdef, self%wind_np1_rtran)
+    end if
+
+    w3_fs => ref_field_rdef%get_function_space()
+    call self%ref_field_rtran%initialise(w3_fs)
+    call copy_field(ref_field_rdef, self%ref_field_rtran)
+
+    ! ------------------------------------------------------------------------ !
+    ! Set transporting wind based on optional arguments
+    ! ------------------------------------------------------------------------ !
+
+    ! "cheap update" wind: 1/2 difference between wind_n and wind_np1
+    if (present(wind_np1_rdef) .and. self%cheap_update_step) then
+      call invoke( X_minus_Y(self%transporting_wind, self%wind_np1_rtran,      &
+                             self%wind_n_rtran),                               &
+                   inc_a_times_X(0.5_r_tran, self%transporting_wind) )
+
+    ! standard semi-implicit transport wind: average of wind_n and wind_np1
+    else if (present(wind_np1_rdef)) then
+      call invoke( X_plus_Y(self%transporting_wind, self%wind_np1_rtran,       &
+                            self%wind_n_rtran),                                &
+                   inc_a_times_X(0.5_r_tran, self%transporting_wind) )
+
+    else
+      call invoke( setval_X(self%transporting_wind, self%wind_n_rtran) )
+    end if
+
+    ! ------------------------------------------------------------------------ !
+    ! Determine number of substeps
+    ! ------------------------------------------------------------------------ !
+
+    ! The logic here needs to be complicated in order to perform the minimum
+    ! number of operations. The strategy is:
+    ! (1) if specified, attempt to use the Watkins algorithm to determine the
+    !     wind for each part of a V-H-V Strang splitting. If this is successful
+    !     only one substep is needed. The ffsl_precomputations are initialised
+    !     using the directional winds *for each step*
+    ! (2) otherwise, if the number of substeps is prescribed, then use the
+    !     prescribed amount. The ffsl_precomputations are initialised using the
+    !     3D wind for the prescribed number of steps.
+    ! (3) finally, if none of the above is true then we need to determine
+    !     the number of substeps based on conditions relating to the wind. The
+    !     ffsl_precomputations are initialised using the 3D wind.
+
+
+    fixed_multiple_substeps = (                                                &
+      substep_transport == substep_transport_two .or.                          &
+      substep_transport == substep_transport_four                              &
+    )
+    perform_watkins = (                                                        &
+        ffsl_unity_3d .and. adjust_vhv_wind                                    &
+        .and. .not. fixed_multiple_substeps                                    &
+    )
+
+    ! For our default options, we only want to substep if the Watkins algorithm
+    ! fails to generate winds that keep Lipschitz numbers below 1. In performing
+    ! that calculation, we also generate the winds for each split step so we
+    ! want to use those rather than recalculating them
+    if (perform_watkins) then
+      mesh => self%transporting_wind%get_mesh()
+      twod_mesh => mesh_collection%get_mesh(mesh, TWOD)
+      w2h_fs => function_space_collection%get_fs(mesh, 0, 0, W2H)
+      w2v_fs => function_space_collection%get_fs(mesh, 0, 0, W2V)
+      w3_2d_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W3)
+
+      mesh_id = mesh%get_id()
+      detj_at_w3 => get_detj_at_w3_r_tran(mesh_id)
+      face_selector_ew => get_face_selector_ew(mesh_id)
+      face_selector_ns => get_face_selector_ns(mesh_id)
+
+      call wind_flux%initialise(w2_fs)
+      call hori_wind_flux%initialise(w2h_fs)
+      call vert_wind_flux%initialise(w2v_fs)
+      call step_1_wind_flux%initialise(w2v_fs)
+      call step_3_wind_flux%initialise(w2v_fs)
+      call watkins_fail_field%initialise(w3_2d_fs)
+
+      ! Following calculations will include dt in the "wind flux" fields, so
+      ! set dt = 1.0 for the Watkins kernel
+      dt_one = 1.0_r_tran
+
+      call invoke( setval_c(hori_wind_flux, 0.0_r_tran),                       &
+                   setval_c(vert_wind_flux, 0.0_r_tran),                       &
+                   ! Ensure all winds are multiplied by dt
+                   a_times_X(wind_flux, dt_rtran, self%transporting_wind),     &
+                   ! Separate wind into horizontal and vertical parts
+                   split_w2_field_kernel_type(hori_wind_flux,                  &
+                                              vert_wind_flux,                  &
+                                              wind_flux,                       &
+                                              face_selector_ew,                &
+                                              face_selector_ns),               &
+                   ! Determine the adjusted wind for the first step
+                   watkins_kernel_type(step_1_wind_flux,                       &
+                                       watkins_fail_field,                     &
+                                       wind_flux,                              &
+                                       dt_one,                                 &
+                                       detj_at_w3),                            &
+                   ! Determine the adjusted wind for the final step
+                   X_minus_Y(step_3_wind_flux, vert_wind_flux, step_1_wind_flux) )
+
+      ! Check if the Watkins algorithm failed
+      if (substep_transport == substep_transport_adaptive) then
+        call get_field_minmax(watkins_fail_field, watkins_min, watkins_fail)
+      else
+        watkins_fail = 0
+      end if
+
+      ! Performing one substep
+      self%dt_substep = dt_rtran
+      self%num_substeps = 1
+      splitting = splitting_strang_vhv
+
+      if (watkins_fail < 1) then
+        ! Log Lipschitz numbers
+        if (log_level() <= LOG_LEVEL_INFO) then
+          call lipschitz_diag_alg(self%transporting_wind, dt_rtran)
+        end if
+
+        call self%ffsl_precomputations%initialise(mesh, splitting, self%num_substeps)
+        call self%ffsl_precomputations%initialise_step(step=1, ref_flux=step_1_wind_flux)
+        call self%ffsl_precomputations%initialise_step(step=2, ref_flux=hori_wind_flux)
+        call self%ffsl_precomputations%initialise_step(step=3, ref_flux=step_3_wind_flux)
+
+        call self%ffsl_precomputations%log_courant()
+      else
+        call log_event(                                                        &
+                'Watkins algorithm failed to keep Lipschitz numbers ' //       &
+                'beneath 1, reverting to original winds', LOG_LEVEL_WARNING    &
+        )
+      end if
+    end if  ! Watkins algorithm and 3D FFSL
+
+    if (.not. perform_watkins .or. (perform_watkins .and. watkins_fail > 0)) then
+      call substep_transport_alg(                                              &
+              self%num_substeps, self%transporting_wind, dt_rtran              &
+      )
+
+      self%dt_substep = dt_rtran / real(self%num_substeps, r_tran)
+    end if
+
+  end subroutine initialise
+
+  !> Public finalise method for the transport controller
+  subroutine finalise(self)
+
+    implicit none
+
+    class(transport_controller_type), intent(inout) :: self
+
+    if (allocated(self%transporting_wind)) deallocate(self%transporting_wind)
+    if (allocated(self%wind_n_rtran)) deallocate(self%wind_n_rtran)
+    if (allocated(self%wind_np1_rtran)) deallocate(self%wind_np1_rtran)
+    if (allocated(self%ref_field_rtran)) deallocate(self%ref_field_rtran)
+
+    call self%ffsl_precomputations%finalise()
+    call self%flux_precomputations%finalise()
+    call self%wind_precomputations%finalise()
+
+    self%outer_set = .false.
+    self%cheap_update_step = .false.
+    call self%counter%finalise()
+    nullify(self%metadata)
+
+  end subroutine finalise
+
+  !> Finalise for the transport controller
+  subroutine destroy_transport_controller(self)
+
+    implicit none
+
+    type(transport_controller_type), intent(inout) :: self
+
+    call self%finalise()
+
+  end subroutine destroy_transport_controller
+
+! ============================================================================ !
+! SETTERS
+! ============================================================================ !
+
+  !> @brief Updates the pointer to the transport metadata object, sets the
+  !!        counter to zero and possibly alters the metadata depending on the
+  !!        outer loop.
+  !> @param[in] metadata  The transport metadata object
+  subroutine before_transport_field(self, metadata)
+
+    implicit none
+
+    class(transport_controller_type), target, intent(inout) :: self
+    type(transport_metadata_type),    target, intent(inout) :: metadata
+
+    ! Set the metadata for the transport of this variable
+    self%metadata => metadata
+
+    ! Initialise counter
+    if (self%outer_set) then
+      call self%metadata%update_metadata(self%outer)
+      call self%counter%initialise(                                            &
+              self%metadata, self%dt_substep, self%num_substeps, self%outer    &
+      )
+    else
+      call self%counter%initialise(                                            &
+              self%metadata, self%dt_substep, self%num_substeps                &
+      )
+    end if
+
+  end subroutine before_transport_field
+
+  !> @brief Nullifies the pointer to the transport metadata, after resetting its
+  !!        options to their original values.
+  subroutine after_transport_field(self)
+
+    implicit none
+
+    class(transport_controller_type), target, intent(inout) :: self
+
+    if (self%outer_set) then
+      call self%metadata%reset_metadata()
+    end if
+
+    nullify(self%metadata)
+
+  end subroutine after_transport_field
+
+! ============================================================================ !
+! GETTERS
+! ============================================================================ !
+
+  !> @brief Returns whether this is a "cheap update" transport step
+  !> @return Logical flag indicating whether this is a "cheap update" step
+  function get_cheap_update_step(self) result(cheap_update_step)
+
+    implicit none
+
+    class(transport_controller_type), intent(in) :: self
+    logical(kind=l_def) :: cheap_update_step
+
+    cheap_update_step = self%cheap_update_step
+
+  end function get_cheap_update_step
+
+  !> @brief Returns a pointer to the counter object
+  !> @return The transport step counter
+  function get_transport_counter(self) result(counter)
+
+    implicit none
+
+    class(transport_controller_type), target, intent(in) :: self
+    type(transport_counter_type),             pointer    :: counter
+
+    counter => self%counter
+
+  end function get_transport_counter
+
+  !> @brief Returns a pointer to the wind_precomputations object, which is used
+  !!        for advective/conservative transport using MoL/SL/non 3D-unity FFSL.
+  !> @return The wind_precomputations object
+  function get_wind_precomputations(self) result(wind_precomputations)
+
+    implicit none
+
+    class(transport_controller_type), target, intent(inout) :: self
+
+    type(wind_precomputations_type), pointer :: wind_precomputations
+    type(mesh_type),                 pointer :: mesh
+
+    ! If object is not created, then create it here
+    if (.not. self%wind_precomputations%is_initialised()) then
+      mesh => self%transporting_wind%get_mesh()
+
+      if (allocated(self%wind_np1_rtran)) then
+        call self%wind_precomputations%initialise(                             &
+                mesh, self%dt_substep, self%transporting_wind,                 &
+                wind_n=self%wind_n_rtran, wind_np1=self%wind_np1_rtran         &
+        )
+      else
+        call self%wind_precomputations%initialise(                             &
+                mesh, self%dt_substep, self%transporting_wind                  &
+        )
+      end if
+    end if
+
+    ! Return existing object
+    wind_precomputations => self%wind_precomputations
+
+  end function get_wind_precomputations
+
+  !> @brief Returns a pointer to the ffsl_precomputations object, which is used
+  !!        for 3D-unity FFSL transport of advective/conservative fields.
+  !> @return The ffsl_precomputations object
+  function get_ffsl_precomputations(self) result(ffsl_precomputations)
+
+    use transport_config_mod,      only: splitting
+    use split_transport_utils_mod, only: get_dry_config
+
+    implicit none
+
+    class(transport_controller_type), target, intent(inout) :: self
+
+    type(flux_precomputations_type), pointer :: ffsl_precomputations
+    type(mesh_type),                 pointer :: mesh
+    integer(kind=i_def)                      :: reference_splitting
+    type(r_tran_field_type)                  :: wind_flux
+    real(kind=r_tran)                        :: dt_rtran
+
+    ! If object is not created, then create it here
+    if (.not. self%ffsl_precomputations%is_initialised()) then
+      mesh => self%transporting_wind%get_mesh()
+      reference_splitting = splitting(get_dry_config())
+
+      ! Log Lipschitz numbers
+      if (log_level() <= LOG_LEVEL_INFO) then
+        dt_rtran = self%dt_substep * real(self%num_substeps, r_tran)
+        call lipschitz_diag_alg(self%transporting_wind, dt_rtran)
+      end if
+
+      ! Wind needs multiplying by dt
+      call self%transporting_wind%copy_field_properties(wind_flux)
+      call invoke( a_times_X(wind_flux, self%dt_substep, self%transporting_wind) )
+
+      ! Since the object has not already been created, we initialise it with the
+      ! 3D wind, rather than a wind flux for each split step
+      ! NOTE: no reference field provided, as it is the unity field
+      ! For this object, all computations are the same across different substeps
+      ! so we only do it for the first substep
+      call self%ffsl_precomputations%initialise(                               &
+              mesh, reference_splitting, self%num_substeps, flux=wind_flux     &
+      )
+      call self%ffsl_precomputations%log_courant()
+    end if
+
+    ! Return existing object
+    ffsl_precomputations => self%ffsl_precomputations
+
+  end function get_ffsl_precomputations
+
+  !> @brief Returns a pointer to the flux_precomputations object, which is used
+  !!        for consistent transport of tracer fields.
+  !> @return The flux_precomputations object
+  function get_flux_precomputations(self) result(flux_precomputations)
+
+    use transport_config_mod,      only: splitting
+    use split_transport_utils_mod, only: get_dry_config
+
+    implicit none
+
+    class(transport_controller_type), target, intent(inout) :: self
+
+    type(flux_precomputations_type), pointer :: flux_precomputations
+    type(mesh_type),                 pointer :: mesh
+    integer(kind=i_def)                      :: reference_splitting
+
+    ! If object is not created, then create it here
+    if (.not. self%flux_precomputations%is_initialised()) then
+      mesh => self%transporting_wind%get_mesh()
+      reference_splitting = splitting(get_dry_config())
+      ! This is used for the consistent transport of tracers, where the fluxes
+      ! are the fluxes of the transported reference density. These will be
+      ! passed to the object once they are computed, and so no wind flux is
+      ! specified here.
+      call self%flux_precomputations%initialise(                               &
+              mesh, reference_splitting, self%num_substeps,                    &
+              ref_field=self%ref_field_rtran                                   &
+      )
+    end if
+
+    ! Return existing object
+    flux_precomputations => self%flux_precomputations
+
+  end function get_flux_precomputations
+
+  !> @brief Initialises the flux precomputations object from a reference flux
+  !> @param[in] ref_flux     The reference flux field
+  subroutine initialise_flux_precomputations(self, ref_flux)
+
+    use transport_config_mod,      only: splitting
+    use split_transport_utils_mod, only: get_dry_config
+
+    implicit none
+
+    class(transport_controller_type), target, intent(inout) :: self
+    type(r_tran_field_type),                  intent(in)    :: ref_flux
+
+    type(mesh_type), pointer :: mesh
+    integer(kind=i_def)      :: reference_splitting
+
+    if (self%flux_precomputations%is_initialised()) then
+      call log_event(                                                          &
+              'Trying to initialise flux_precomputations but it is ' //        &
+              'already initialised',                                           &
+              LOG_LEVEL_ERROR                                                  &
+      )
+    end if
+
+    mesh => self%transporting_wind%get_mesh()
+    reference_splitting = splitting(get_dry_config())
+    ! This is used for the consistent transport of the "last outer" group of
+    ! tracers, either with the "cheap update" or if those tracers are on a
+    ! coarser mesh. In either case, the fluxes calculated during the transport
+    ! of the density are not the same as those that will be used to transport
+    ! the tracers. We set the correct flux here.
+    call self%flux_precomputations%initialise(                                 &
+            mesh, reference_splitting, self%num_substeps, flux=ref_flux        &
+    )
+
+  end subroutine initialise_flux_precomputations
+
+  !> @brief Returns a pointer to the transport metadata object
+  !> @return The transport metadata
+  function get_transport_metadata(self) result(metadata)
+
+    implicit none
+
+    class(transport_controller_type), target, intent(in) :: self
+    type(transport_metadata_type),            pointer    :: metadata
+
+    metadata => self%metadata
+
+  end function get_transport_metadata
+
+end module transport_controller_mod

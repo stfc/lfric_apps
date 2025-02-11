@@ -10,8 +10,7 @@ module atlt_poly1d_vert_w3_recon_alg_mod
   use function_space_mod,                only : function_space_type
   use mesh_mod,                          only : mesh_type
   use function_space_collection_mod,     only : function_space_collection
-  use finite_element_config_mod,         only : element_order_h, &
-                                                element_order_v
+  use finite_element_config_mod,         only : element_order_h, element_order_v
   use fs_continuity_mod,                 only : W3
   use constants_mod,                     only : i_def, l_def, r_def
   use setop_random_kernel_mod,           only : setop_random_kernel_type
@@ -44,7 +43,7 @@ module atlt_poly1d_vert_w3_recon_alg_mod
     use tl_poly1d_vert_w3_reconstruction_kernel_mod,  only : tl_poly1d_vert_w3_reconstruction_kernel_type, &
                                                              tl_poly1d_vert_w3_reconstruction_init,        &
                                                              tl_poly1d_vert_w3_reconstruction_final
-    use atl_poly1d_vert_w3_reconstruction_kernel_mod, only : atl_poly1d_vert_w3_reconstruction_init, &
+    use atl_poly1d_vert_w3_reconstruction_kernel_mod, only : atl_poly1d_vert_w3_reconstruction_init,        &
                                                              atl_poly1d_vert_w3_reconstruction_final
     use invoke_atl_poly1d_vert_w3_recon_mod,          only : invoke_atl_poly1d_vert_w3_recon_kernel_type
 
@@ -54,13 +53,14 @@ module atlt_poly1d_vert_w3_recon_alg_mod
     type(mesh_type), pointer, intent(in) :: mesh
 
     ! Arguments for tl and adj calls
-    type(field_type)             :: reconstruction
-    type(field_type)             :: tracer
-    type(field_type)             :: ls_tracer
-    type(field_type),    pointer :: coeff
-    integer(kind=i_def)          :: ndata
-    integer(kind=i_def)          :: global_order
-    logical(kind=l_def)          :: logspace
+    type(field_type)                                   :: reconstruction
+    type(field_type)                                   :: tracer
+    type(field_type)                                   :: ls_tracer
+    type(field_type),                          pointer :: coeff
+    integer(kind=i_def)                                :: ndata
+    integer(kind=i_def)                                :: global_order
+    logical(kind=l_def)                                :: logspace
+    integer(kind=i_def), allocatable, dimension(:,:,:) :: stencil
 
     ! Copies of input fields used in inner products
     type(field_type) :: reconstruction_input
@@ -89,8 +89,6 @@ module atlt_poly1d_vert_w3_recon_alg_mod
     integer(kind=i_def)                    :: nlayers
     logical(kind=l_def)                    :: reversible
 
-    integer(kind=i_def), allocatable, dimension(:,:,:) :: stencil
-
     transport_metadata => transport_metadata_collection%get_transport_metadata('density')
     reversible = ( transport_metadata%get_reversible() )
     logspace = transport_metadata%get_log_space()
@@ -108,8 +106,12 @@ module atlt_poly1d_vert_w3_recon_alg_mod
       global_order = fv_vertical_order
     end if
 
-    vector_space_w3_ptr => function_space_collection % get_fs(mesh, element_order_h, element_order_v, w3)
-    vector_space_w3_md_ptr => function_space_collection % get_fs(mesh, element_order_h, element_order_v, w3, ndata = ndata)
+    vector_space_w3_ptr => function_space_collection % get_fs(                 &
+        mesh, element_order_h, element_order_v, w3                             &
+    )
+    vector_space_w3_md_ptr => function_space_collection % get_fs(              &
+        mesh, element_order_h, element_order_v, w3, ndata = ndata              &
+    )
     call reconstruction % initialise(vector_space=vector_space_w3_md_ptr, name='reconstruction')
     call tracer % initialise(vector_space=vector_space_w3_ptr, name='tracer')
     call ls_tracer % initialise(vector_space=vector_space_w3_ptr, name='ls_tracer')
@@ -169,7 +171,7 @@ module atlt_poly1d_vert_w3_recon_alg_mod
     inner2 = inner2 + tracer_tracer_input_inner_prod
 
     call tl_poly1d_vert_w3_reconstruction_final()
-    call atl_poly1d_vert_w3_reconstruction_final(stencil)
+    call atl_poly1d_vert_w3_reconstruction_final( stencil )
 
     ! Test the inner-product values for equality, allowing for the precision of the active variables
     machine_tol = spacing( max( abs(inner1), abs(inner2) ) )

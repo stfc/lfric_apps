@@ -486,8 +486,7 @@ contains
                                            state,       &
                                            model_clock, &
                                            outer,       &
-                                           wind_prev,   &
-                                           state_n%vector(isw_g) )
+                                           wind_prev )
 
       ! Set wind_prev to be latest estimate of wind
       call invoke( setval_X(wind_prev, state%vector(isw_u)) )

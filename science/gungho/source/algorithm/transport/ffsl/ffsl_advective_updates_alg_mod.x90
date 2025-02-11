@@ -55,6 +55,7 @@ contains
     minus_half_dt      = - 0.5_r_tran*dt
     minus_half_dt_copy = minus_half_dt
 
+    ! TODO #416: a small optimisation would combine increment_x and increment_y
     call invoke( aX_plus_bY(field_np1, minus_half_dt, increment_x, &
                             minus_half_dt_copy, increment_y),      &
                  X_times_Y(f1, field_x, dry_mass_x),               &

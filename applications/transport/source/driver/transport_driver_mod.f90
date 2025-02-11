@@ -38,7 +38,6 @@ module transport_driver_mod
   use inventory_by_mesh_mod,            only: inventory_by_mesh_type
   use lfric_xios_context_mod,           only: lfric_xios_context_type
   use lfric_xios_action_mod,            only: advance
-  use local_mesh_mod,                   only: local_mesh_type
   use log_mod,                          only: log_event,         &
                                               log_scratch_space, &
                                               LOG_LEVEL_ALWAYS,  &
@@ -58,8 +57,6 @@ module transport_driver_mod
                                               transport_init, transport_step,  &
                                               transport_final, use_w2_vector,  &
                                               use_aerosols
-  use transport_runtime_collection_mod, only: init_transport_runtime_collection, &
-                                              transport_runtime_collection_final
 
   !-------------------------------------------
   ! Configuration modules
@@ -105,8 +102,6 @@ contains
 
     character(len=*),         parameter   :: xios_ctx = "transport"
     integer(kind=i_def)                   :: num_base_meshes
-    integer(kind=i_def),      allocatable :: local_mesh_ids(:)
-    type(local_mesh_type),        pointer :: local_mesh
     type(mesh_type),              pointer :: mesh
     type(mesh_type),              pointer :: aerosol_mesh
     type(inventory_by_mesh_type), pointer :: chi_inventory
@@ -352,21 +347,12 @@ contains
     ! Set up transport runtime collection type
     ! Transport on only one horizontal local mesh
     mesh => mesh_collection%get_mesh(prime_mesh_name)
-    local_mesh => mesh%get_local_mesh()
 
     if ( use_multires_coupling ) then
-      allocate(local_mesh_ids(2))
-      local_mesh_ids(1) = local_mesh%get_id()
       aerosol_mesh => mesh_collection%get_mesh(aerosol_mesh_name)
-      local_mesh => aerosol_mesh%get_local_mesh()
-      local_mesh_ids(2) = local_mesh%get_id()
     else
-      allocate(local_mesh_ids(1))
-      local_mesh_ids(1) = local_mesh%get_id()
       aerosol_mesh => mesh_collection%get_mesh(prime_mesh_name)
     end if
-
-    call init_transport_runtime_collection(local_mesh_ids)
 
     ! Set transport metadata for primal mesh
     call transport_prerun_setup( num_base_meshes )
@@ -463,8 +449,7 @@ contains
     if (allocated(meshes_to_double)) deallocate(meshes_to_double)
 
     if (allocated(extra_io_mesh_names)) deallocate(extra_io_mesh_names)
-    deallocate(local_mesh_ids)
-    nullify(chi_inventory, panel_id_inventory, mesh, local_mesh, aerosol_mesh)
+    nullify(chi_inventory, panel_id_inventory, mesh, aerosol_mesh)
 
   end subroutine initialise_transport
 
@@ -609,8 +594,6 @@ contains
     call checksum_alg( program_name, density, 'rho',  wind, 'u',  &
                        theta, 'theta', tracer_adv, 'tracer',      &
                        field_bundle=mr, bundle_name='mr' )
-
-    call transport_runtime_collection_final()
 
     call final_io(modeldb)
 

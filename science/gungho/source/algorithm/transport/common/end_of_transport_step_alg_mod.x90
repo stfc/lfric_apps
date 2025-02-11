@@ -23,6 +23,7 @@ module end_of_transport_step_alg_mod
   use field_mod,                      only: field_type
   use sci_field_minmax_alg_mod,       only: log_field_minmax
   use finite_element_config_mod,      only: element_order_h, element_order_v
+  use flux_precomputations_alg_mod,   only: flux_precomputations_type
   use fs_continuity_mod,              only: W3, Wtheta, W2, W2H, W2V
   use function_space_mod,             only: function_space_type
   use function_space_collection_mod,  only: function_space_collection
@@ -49,6 +50,7 @@ module end_of_transport_step_alg_mod
   use operator_mod,                   only: operator_type
   use r_tran_field_mod,               only: r_tran_field_type
   use r_tran_operator_mod,            only: r_tran_operator_type
+  use split_transport_utils_mod,      only: get_num_split_steps
   use timer_mod,                      only: timer
   use transport_config_mod,           only: dry_field_name,              &
                                             min_val_abs_tol,             &
@@ -58,18 +60,17 @@ module end_of_transport_step_alg_mod
                                             min_val_method_clipping,     &
                                             theta_dispersion_correction, &
                                             operators,                   &
-                                            operators_fem
+                                            operators_fem,               &
+                                            cheap_update
   use transport_constants_mod,        only: get_directional_im3_div_r_tran, &
                                             get_detj_at_w3_r_tran
+  use transport_counter_mod,          only: transport_counter_type
   use transport_enumerated_types_mod, only: direction_3d,   &
                                             direction_h,    &
                                             direction_v,    &
                                             splitting_none, &
                                             splitting_strang_vhv
   use transport_metadata_mod,         only: transport_metadata_type
-  use transport_runtime_alg_mod,      only: transport_runtime_type
-  use transport_runtime_collection_mod, &
-                                      only: get_transport_runtime
   use sci_field_minmax_alg_mod,       only: get_field_minmax
   use dg_matrix_vector_kernel_mod,    only: dg_matrix_vector_kernel_type
 
@@ -94,31 +95,33 @@ contains
   !!                                   to be computed.
   !> @param[in]     field_in           Field at the beginning of this transport
   !!                                   step.
+  !> @param[in]     transport_counter  Object storing transport counters
   !> @param[in]     transport_metadata Contains the configuration options for
   !!                                   transporting the field
-  subroutine end_of_advective_step_alg(field_np1, field_in, transport_metadata)
+  subroutine end_of_advective_step_alg(field_np1, field_in, transport_counter, &
+                                       transport_metadata)
 
     implicit none
 
     ! Arguments
     type(r_tran_field_type),       intent(inout) :: field_np1
     type(r_tran_field_type),       intent(in)    :: field_in
+    type(transport_counter_type),  intent(in)    :: transport_counter
     type(transport_metadata_type), intent(in)    :: transport_metadata
 
     ! Internal variables
     real(kind=r_tran)                     :: min_value
     logical(kind=l_def)                   :: final_split_step
-    type(transport_runtime_type), pointer :: transport_runtime => null()
-    type(mesh_type),              pointer :: mesh => null()
+    type(mesh_type),              pointer :: mesh
+    integer(kind=i_def)                   :: step
 
     if ( subroutine_timers ) call timer('transport.end_of_transport')
 
     mesh => field_np1%get_mesh()
-    transport_runtime => get_transport_runtime(mesh)
 
     ! Determine whether this is the final split step
-    final_split_step = ( transport_runtime%get_tracer_step_ctr() &
-                         == transport_runtime%get_num_dry_steps() )
+    step = transport_counter%get_split_step_of_substep_counter()
+    final_split_step = ( step == get_num_split_steps(transport_metadata%get_splitting()) )
 
     ! Enforce a min value if required
     if ( final_split_step .and. transport_metadata%get_enforce_min_value() ) then
@@ -140,9 +143,6 @@ contains
                                          depth=transport_boundary_depth)
     end if
 
-    ! Increment the step counter in the transport runtime
-    call transport_runtime%inc_tracer_step_ctr()
-
     call log_field_minmax( LOG_LEVEL_DEBUG, 'field_np1: end_of_advective_step', field_np1)
 
     if ( subroutine_timers ) call timer('transport.end_of_transport')
@@ -156,76 +156,68 @@ contains
   !!          - overwriting field data in the blending zone, if necessary
   !!          - enforcing a minimum value for the field, if necessary
   !!          - saving any fields (such as mass fluxes) that may be used later
-  !> @param[in,out] field_np1          Field at the end of the transport step
-  !!                                   to be computed.
-  !> @param[in]     field_in           Field at the beginning of this transport
-  !!                                   step, which may be saved in the transport
-  !!                                   runtime object if this field is the "dry
-  !!                                   field".
-  !> @param[in]     flux               The mass flux for this transport step.
-  !> @param[in]     transport_metadata Contains the configuration options for
-  !!                                   transporting the field
-  subroutine end_of_conservative_step_alg(field_np1, field_in, flux, &
-                                          transport_metadata)
+  !> @param[in,out] field_np1            Field at the end of the transport step
+  !!                                     to be computed.
+  !> @param[in]     field_in             Field at the beginning of this
+  !!                                     transport step
+  !> @param[in]     flux                 The mass flux for this transport step.
+  !> @param[in,out] flux_precomputations Object to store fluxes and densities
+  !!                                     if this is the reference field
+  !> @param[in,out] transport_counter    Object storing transport counters and
+  !!                                     the fluxes to build up through each
+  !!                                     transport step
+  !> @param[in]     transport_metadata   Contains the configuration options for
+  !!                                     transporting the field
+  subroutine end_of_conservative_step_alg(field_np1, field_in, flux,           &
+                                          flux_precomputations,                &
+                                          transport_counter, transport_metadata)
 
     implicit none
 
     ! Arguments
-    type(r_tran_field_type),       intent(inout) :: field_np1
-    type(r_tran_field_type),       intent(in)    :: field_in
-    type(r_tran_field_type),       intent(in)    :: flux
-    type(transport_metadata_type), intent(in)    :: transport_metadata
+    type(r_tran_field_type),         intent(inout) :: field_np1
+    type(r_tran_field_type),         intent(in)    :: field_in
+    type(r_tran_field_type),         intent(in)    :: flux
+    type(flux_precomputations_type), intent(inout) :: flux_precomputations
+    type(transport_counter_type),    intent(inout) :: transport_counter
+    type(transport_metadata_type),   intent(in)    :: transport_metadata
 
     ! Internal variables
-    integer(kind=i_def)                   :: mesh_id, step, fs_idx
-    integer(kind=i_def)                   :: step_with_substep, total_substep
-    integer(kind=i_def)                   :: step_p1_with_substep
-    integer(kind=i_def)                   :: substep_number, total_steps
+    integer(kind=i_def)                   :: mesh_id, step
+    integer(kind=i_def)                   :: ref_step
     integer(kind=i_def)                   :: limit_iteration
     integer(kind=i_def)                   :: num_limiting_steps
     type(mesh_type),              pointer :: mesh
     type(r_tran_field_type)               :: increment
-    type(r_tran_field_type)               :: increment_x
-    type(r_tran_field_type)               :: increment_y
     type(r_tran_field_type)               :: sum_flux
-    type(r_tran_field_type)               :: conservative_field_np1
-    type(r_tran_field_type)               :: conservative_field_x
-    type(r_tran_field_type)               :: conservative_field_y
-    type(r_tran_field_type),      pointer :: conservative_field_n
     type(r_tran_field_type),      pointer :: detj_at_w3
     type(r_tran_field_type),      pointer :: field_start
     type(r_tran_operator_type),   pointer :: div
     type(operator_type),          pointer :: div_r_def
-    type(transport_runtime_type), pointer :: transport_runtime
     type(function_space_type),    pointer :: w2_fs
     type(function_space_type),    pointer :: field_fs
     logical(kind=l_def)                   :: enforce_min_value
     logical(kind=l_def)                   :: final_split_step
     logical(kind=l_def)                   :: is_dry_field
-    logical(kind=l_def)                   :: store_dry_field
-    logical(kind=l_def)                   :: no_mono_flag
     real(kind=r_tran)                     :: min_value
     real(kind=r_tran)                     :: adv_dt
     real(kind=r_tran)                     :: acceptable_min
     real(kind=r_tran)                     :: field_min, field_max
-    integer(kind=i_def)                   :: direction
 
     if ( subroutine_timers ) call timer('transport.end_of_transport')
 
     ! Extract transport runtime
     mesh => field_np1%get_mesh()
-    transport_runtime => get_transport_runtime(mesh)
-    no_mono_flag = transport_runtime%get_no_mono_flag()
     mesh_id = mesh%get_id()
     enforce_min_value = transport_metadata%get_enforce_min_value()
     is_dry_field = (trim(transport_metadata%get_name()) == trim(dry_field_name))
     detj_at_w3 => get_detj_at_w3_r_tran(mesh_id)
 
     ! Determine whether this is the final split step
-    final_split_step = ( transport_runtime%get_tracer_step_ctr() &
-                         == transport_runtime%get_num_dry_steps() )
+    step = transport_counter%get_split_step_of_substep_counter()
+    final_split_step = ( step == get_num_split_steps(transport_metadata%get_splitting()) )
 
-    if (.not. final_split_step) call transport_runtime%set_flux(flux)
+    if (.not. final_split_step) call transport_counter%set_flux(flux)
 
     ! ------------------------------------------------------------------------ !
     ! Compute increment from all split steps
@@ -233,7 +225,7 @@ contains
 
     if ( final_split_step ) then
 
-      field_start => transport_runtime%get_field_n()
+      field_start => transport_counter%get_field_n()
       w2_fs => function_space_collection%get_fs(mesh, element_order_h, &
                                                 element_order_v, W2)
       field_fs => field_np1%get_function_space()
@@ -242,14 +234,13 @@ contains
 
       ! Get final field at end of transport
       ! First sum the fluxes from all previous steps
-      call build_up_flux(sum_flux, flux, transport_runtime, transport_metadata)
+      call build_up_flux(sum_flux, flux, transport_counter, transport_metadata)
 
       ! ---------------------------------------------------------------------- !
       ! Conservative clipping by limiting flux, if specified
       ! ---------------------------------------------------------------------- !
 
-      if (enforce_min_value .and. min_val_method == min_val_method_iterative &
-                            .and. .not. no_mono_flag) then
+      if (enforce_min_value .and. min_val_method == min_val_method_iterative) then
 
         if ( subroutine_timers ) call timer('transport.iterative_min_val')
 
@@ -303,7 +294,7 @@ contains
 
       ! Limiter doesn't guarantee positivity, so mop up here
       if (enforce_min_value) then
-        if (min_val_method == min_val_method_clipping .or. no_mono_flag) then
+        if (min_val_method == min_val_method_clipping) then
           min_value = transport_metadata%get_min_value()
           call invoke( inc_max_aX(min_value, field_np1) )
         else
@@ -329,120 +320,22 @@ contains
     end if
 
     ! ------------------------------------------------------------------------ !
-    ! Store dry field details
+    ! Store dry flux
     ! ------------------------------------------------------------------------ !
-    ! Store field in transport_runtime for conservative transport
-    ! if this is the underlying dry field
+    ! Store flux in flux_precomputations for conservative tracer transport
+    ! if this is the underlying reference field
     if ( is_dry_field ) then
-      store_dry_field = (                                                      &
-          check_any_eqn_consistent() .or. check_any_wt_eqn_conservative()      &
-      )
+      ref_step = transport_counter%get_split_step_of_whole_step_counter()
+      call flux_precomputations%initialise_step(ref_step, flux)
+
+      ! TODO: this is only needed for cheap_update or the vector invariant form
+      ! in the shallow water model. It would be nice to get an if statement
+      ! to capture this but would require a shallow water option in gungho
+      ! which is not currently possible
+      if ( final_split_step ) then
+        call flux_precomputations%set_total_ref_flux(sum_flux)
+      end if
     end if
-    if ( is_dry_field .and. store_dry_field ) then
-      ! Determine direction of transport
-      fs_idx = flux%which_function_space()
-      select case (fs_idx)
-      case (W2H)
-        direction = direction_h
-      case (W2V)
-        direction = direction_v
-      case (W2)
-        direction = direction_3d
-      end select
-
-      field_fs => field_np1%get_function_space()
-      step = transport_runtime%get_tracer_step_ctr()
-      total_steps = transport_runtime%get_num_dry_steps()
-      ! Get substep information
-      substep_number = transport_runtime%get_substep_total_ctr()
-      total_substep = transport_runtime%get_number_total_substeps()
-      step_with_substep = transport_runtime%get_substep_total_index(0)+step
-      step_p1_with_substep = transport_runtime%get_substep_total_index(1)+step+1
-
-      ! Need to compute the corresponding density transported by this flux
-      if ( subroutine_timers ) call timer('transport.end_cons_update')
-
-      conservative_field_n => transport_runtime%get_rho_d(mesh_id, step_p1_with_substep-1)
-      call conservative_field_np1%initialise(field_fs)
-      call increment%initialise(field_fs)
-
-      if (operators == operators_fem) then
-        ! Finite element transport, so need full divergence operator
-        div => get_directional_im3_div_r_tran(mesh_id, direction)
-        call invoke( dg_matrix_vector_kernel_type(increment, flux, div),       &
-                     X_minus_Y(conservative_field_np1, conservative_field_n,   &
-                               increment) )
-
-      else
-        ! Can use quicker lowest-order kernels to take the divergence
-        select case (direction)
-        case (direction_3d)
-          call invoke( fv_divergence_3d_kernel_type(increment, flux,           &
-                                                    detj_at_w3),               &
-                       X_minus_Y(conservative_field_np1,                       &
-                                 conservative_field_n, increment) )
-        case (direction_h)
-          call invoke( fv_divergence_2d_kernel_type(increment, flux,           &
-                                                    detj_at_w3),               &
-                       X_minus_Y(conservative_field_np1,                       &
-                                 conservative_field_n, increment) )
-        case (direction_v)
-          call invoke( fv_divergence_z_kernel_type(increment, flux,            &
-                                                   detj_at_w3),                &
-                       X_minus_Y(conservative_field_np1,                       &
-                                 conservative_field_n, increment) )
-        end select
-
-        ! We may also need to compute rho_d_ffsl for consistent transport
-        if ( direction == direction_h .and. check_any_eqn_consistent() ) then
-          ! Compute stored FFSL density fields by adding increments to the
-          ! previously stored rho fields, and not the advective rho predictor
-          call conservative_field_x%initialise( vector_space = field_fs )
-          call conservative_field_y%initialise( vector_space = field_fs )
-          call increment_x%initialise( vector_space = field_fs )
-          call increment_y%initialise( vector_space = field_fs )
-
-          call invoke( fv_divergence_x_kernel_type(increment_x, flux,          &
-                                                   detj_at_w3),                &
-                       fv_divergence_y_kernel_type(increment_y, flux,          &
-                                                   detj_at_w3),                &
-                       X_minus_Y(conservative_field_x, conservative_field_n,   &
-                                                                increment_x),  &
-                       X_minus_Y(conservative_field_y, conservative_field_n,   &
-                                                                increment_y) )
-
-          if ( limited_area .and. topology == topology_non_periodic ) then
-            call overwrite_blending_zone_rtran(conservative_field_x, conservative_field_n, &
-                                               depth=transport_boundary_depth)
-            call overwrite_blending_zone_rtran(conservative_field_y, conservative_field_n, &
-                                               depth=transport_boundary_depth)
-          end if
-
-          call transport_runtime%set_rho_d_ffsl_x(conservative_field_x, step_with_substep)
-          call transport_runtime%set_rho_d_ffsl_y(conservative_field_y, step_with_substep)
-        end if
-
-      end if
-
-      if ( limited_area .and. topology == topology_non_periodic ) then
-        call overwrite_blending_zone_rtran(conservative_field_np1, conservative_field_n, depth=transport_boundary_depth)
-      end if
-
-      call transport_runtime%set_rho_d(conservative_field_np1, step_p1_with_substep)
-
-      ! if we are substepping we also need to set rho_d at the start of the next substep
-      if ( substep_number<total_substep .AND. step == total_steps ) then
-        call transport_runtime%set_rho_d(conservative_field_np1, step_p1_with_substep+1)
-      end if
-
-      if ( subroutine_timers ) call timer('transport.end_cons_update')
-
-      ! Store the dry flux
-      call transport_runtime%set_dry_flux(flux, step_with_substep)
-    end if
-
-    ! Increment the step counter in the transport runtime
-    call transport_runtime%inc_tracer_step_ctr()
 
     call log_field_minmax( LOG_LEVEL_DEBUG, 'field_np1: end_of_conservative_step', field_np1)
 
@@ -461,17 +354,22 @@ contains
   !!          - if this is not the final step, save the flux for future use
   !!          - obtain the transported mixing ratio field
   !!          - overwrite field data in the blending zone, if necessary
-  !> @param[in,out] field_np1          Field at the end of the transport step
-  !!                                   to be computed.
-  !> @param[in]     flux               The mass flux for this transport step.
-  !> @param[in]     transport_metadata Contains the configuration options for
-  !!                                   transporting the field
-  !> @param[in]     compute_field_np1  Optional flag, indicating whether
-  !!                                   field_np1 needs computing from the
-  !!                                   divergence of fluxes. If this argument
-  !!                                   is not provided, field_np1 will be
-  !!                                   computed but only on the final split step
-  subroutine end_of_consistent_step_alg(field_np1, flux, transport_metadata, &
+  !> @param[in,out] field_np1            Field at the end of the transport step
+  !!                                     to be computed.
+  !> @param[in]     flux                 The mass flux for this transport step.
+  !> @param[in]     flux_precomputations Object storing the reference densities
+  !!                                     and fluxes (used for computing the
+  !!                                     dispersion relation correction)
+  !> @param[in,out] transport_counter    Object storing transport counters
+  !> @param[in]     transport_metadata   Contains the configuration options for
+  !!                                     transporting the field
+  !> @param[in]     compute_field_np1    Optional flag, indicating whether
+  !!                                     field_np1 needs computing from the
+  !!                                     divergence of fluxes. If this argument
+  !!                                     is not provided, field_np1 will be
+  !!                                     computed but only on the final step
+  subroutine end_of_consistent_step_alg(field_np1, flux, flux_precomputations, &
+                                        transport_counter, transport_metadata, &
                                         compute_field_np1)
 
     use consistent_dispersion_kernel_mod, &
@@ -488,51 +386,49 @@ contains
     implicit none
 
     ! Arguments
-    type(r_tran_field_type),       intent(inout) :: field_np1
-    type(r_tran_field_type),       intent(in)    :: flux
-    type(transport_metadata_type), intent(in)    :: transport_metadata
-    logical(kind=l_def), optional, intent(in)    :: compute_field_np1
+    type(r_tran_field_type),         intent(inout) :: field_np1
+    type(r_tran_field_type),         intent(in)    :: flux
+    type(flux_precomputations_type), intent(inout) :: flux_precomputations
+    type(transport_counter_type),    intent(inout) :: transport_counter
+    type(transport_metadata_type),   intent(in)    :: transport_metadata
+    logical(kind=l_def), optional,   intent(in)    :: compute_field_np1
 
     ! Internal variables
     integer(kind=i_def)                   :: prime_extrusion_mesh_id
-    integer(kind=i_def)                   :: step, last_step
-    integer(kind=i_def)                   :: step_with_substep
-    integer(kind=i_def)                   :: start_step_with_substep
-    integer(kind=i_def)                   :: final_step_with_substep
+    integer(kind=i_def)                   :: step, start_index, np1_index
+    integer(kind=i_def)                   :: ref_step
     integer(kind=i_def)                   :: limit_iteration
     integer(kind=i_def)                   :: num_limiting_steps
     integer(kind=i_def)                   :: mr_function_space
     integer(kind=i_def)                   :: flux_function_space
-    type(mesh_type),              pointer :: prime_extrusion_mesh => null()
-    type(mesh_type),              pointer :: shifted_mesh => null()
+    type(mesh_type),              pointer :: prime_extrusion_mesh
+    type(mesh_type),              pointer :: shifted_mesh
     type(r_tran_field_type)               :: increment
     type(r_tran_field_type)               :: rho_X_start, rho_X_np1
     type(r_tran_field_type)               :: mr_sh_w3_start, mr_sh_w3_np1
-    type(r_tran_field_type),      pointer :: mr_start => null()
-    type(r_tran_field_type),      pointer :: dry_flux => null()
-    type(r_tran_field_type),      pointer :: rho_d_start => null()
-    type(r_tran_field_type),      pointer :: rho_d_np1 => null()
-    type(r_tran_field_type),      pointer :: detj_at_w3 => null()
-    type(field_type),             pointer :: height_wt => null()
-    type(field_type),             pointer :: rmultiplicity_shifted => null()
-    type(integer_field_type),     pointer :: face_selector_ew => null()
-    type(integer_field_type),     pointer :: face_selector_ns => null()
+    type(r_tran_field_type),      pointer :: mr_start
+    type(r_tran_field_type),      pointer :: dry_flux
+    type(r_tran_field_type),      pointer :: rho_d_start
+    type(r_tran_field_type),      pointer :: rho_d_np1
+    type(r_tran_field_type),      pointer :: detj_at_w3
+    type(field_type),             pointer :: height_wt
+    type(field_type),             pointer :: rmultiplicity_shifted
+    type(integer_field_type),     pointer :: face_selector_ew
+    type(integer_field_type),     pointer :: face_selector_ns
     type(r_tran_field_type)               :: sum_flux
     type(r_tran_field_type)               :: theta_factor_wt
     type(r_tran_field_type)               :: theta_factor_w2_shifted
     type(r_tran_field_type)               :: theta_factor_w3_shifted
     type(r_tran_field_type)               :: flux_correction
-    type(function_space_type),    pointer :: w3_fs => null()
-    type(function_space_type),    pointer :: w2_fs => null()
-    type(function_space_type),    pointer :: sh_w3_fs => null()
-    type(function_space_type),    pointer :: sh_w2_fs => null()
-    type(r_tran_operator_type),   pointer :: div => null()
-    type(operator_type),          pointer :: div_r_def => null()
-    type(transport_runtime_type), pointer :: transport_runtime => null()
+    type(function_space_type),    pointer :: w3_fs
+    type(function_space_type),    pointer :: w2_fs
+    type(function_space_type),    pointer :: sh_w3_fs
+    type(function_space_type),    pointer :: sh_w2_fs
+    type(r_tran_operator_type),   pointer :: div
+    type(operator_type),          pointer :: div_r_def
     logical(kind=l_def)                   :: enforce_min_value
     logical(kind=l_def)                   :: final_split_step
     logical(kind=l_def)                   :: logspace
-    logical(kind=l_def)                   :: no_mono_flag
     real(kind=r_tran)                     :: min_value
     real(kind=r_tran)                     :: adv_dt
     real(kind=r_tran)                     :: acceptable_min
@@ -543,17 +439,15 @@ contains
 
     ! Extract transport runtime
     prime_extrusion_mesh => field_np1%get_mesh()
-    transport_runtime => get_transport_runtime(prime_extrusion_mesh)
-    no_mono_flag = transport_runtime%get_no_mono_flag()
     prime_extrusion_mesh_id = prime_extrusion_mesh%get_id()
     enforce_min_value = transport_metadata%get_enforce_min_value()
     mr_function_space = field_np1%which_function_space()
     flux_function_space = flux%which_function_space()
-    mr_start => transport_runtime%get_field_n()
+    mr_start => transport_counter%get_field_n()
 
     ! Determine whether this is the final split step
-    final_split_step = ( transport_runtime%get_tracer_step_ctr() &
-                         == transport_runtime%get_num_dry_steps() )
+    step = transport_counter%get_split_step_of_substep_counter()
+    final_split_step = ( step == get_num_split_steps(transport_metadata%get_splitting()) )
 
     ! Set variable for determining whether to recompute field_np1 through
     ! taking the divergence of fluxes over the whole time step
@@ -586,10 +480,9 @@ contains
 
       shifted_mesh => mesh_collection%get_mesh(prime_extrusion_mesh, SHIFTED)
       sh_w3_fs => function_space_collection%get_fs(shifted_mesh, 0, 0, W3)
-      step = transport_runtime%get_tracer_step_ctr()
-      step_with_substep = transport_runtime%get_substep_total_index(0)+step
       rmultiplicity_shifted => get_rmultiplicity(flux_function_space, shifted_mesh%get_id())
-      dry_flux => transport_runtime%get_dry_flux(prime_extrusion_mesh_id, step_with_substep)
+      ref_step = transport_counter%get_split_step_of_whole_step_counter()
+      dry_flux => flux_precomputations%get_ref_flux(prime_extrusion_mesh_id, ref_step)
       height_wt => get_height(Wtheta, prime_extrusion_mesh_id)
       logspace = transport_metadata%get_log_space()
       face_selector_ew => get_face_selector_ew(prime_extrusion_mesh_id)
@@ -629,7 +522,7 @@ contains
     ! Store flux
     ! ------------------------------------------------------------------------ !
 
-    if (.not. final_split_step) call transport_runtime%set_flux(flux)
+    if (.not. final_split_step) call transport_counter%set_flux(flux)
 
     ! ------------------------------------------------------------------------ !
     ! Compute increment from all split steps
@@ -641,17 +534,18 @@ contains
       ! Calculate density at start of transport step
       ! ---------------------------------------------------------------------- !
 
-      last_step = transport_runtime%get_num_dry_steps()
-      start_step_with_substep = transport_runtime%get_substep_total_index(1)+1
-      final_step_with_substep = transport_runtime%get_substep_total_index(1)+last_step
+      start_index = (                                                          &
+          1 + (transport_counter%get_substep_counter() - 1)                    &
+          *get_num_split_steps(transport_metadata%get_splitting())             &
+      )
+      np1_index = transport_counter%get_split_step_of_whole_step_counter() + 1
 
       select case ( mr_function_space )
       case ( W3 )
         w3_fs => function_space_collection%get_fs(prime_extrusion_mesh, 0, 0, W3)
         w2_fs => function_space_collection%get_fs(prime_extrusion_mesh, 0, 0, W2)
-        rho_d_start => transport_runtime%get_rho_d(prime_extrusion_mesh_id, start_step_with_substep)
-        rho_d_np1 => transport_runtime%get_rho_d(prime_extrusion_mesh_id, final_step_with_substep+1)
-        div => get_directional_im3_div_r_tran(prime_extrusion_mesh_id, direction_3d)
+        rho_d_start => flux_precomputations%get_ref_field(prime_extrusion_mesh_id, start_index)
+        rho_d_np1 => flux_precomputations%get_ref_field(prime_extrusion_mesh_id, np1_index)
         detj_at_w3 => get_detj_at_w3_r_tran(prime_extrusion_mesh_id)
 
         call rho_X_start%initialise( w3_fs )
@@ -665,9 +559,8 @@ contains
         shifted_mesh => mesh_collection%get_mesh(prime_extrusion_mesh, SHIFTED)
         sh_w3_fs => function_space_collection%get_fs(shifted_mesh, 0, 0, W3)
         sh_w2_fs => function_space_collection%get_fs(shifted_mesh, 0, 0, W2)
-        rho_d_start => transport_runtime%get_rho_d(shifted_mesh%get_id(), start_step_with_substep)
-        rho_d_np1 => transport_runtime%get_rho_d(shifted_mesh%get_id(), final_step_with_substep+1)
-        div => get_directional_im3_div_r_tran(shifted_mesh%get_id(), direction_3d)
+        rho_d_start => flux_precomputations%get_ref_field(shifted_mesh%get_id(), start_index)
+        rho_d_np1 => flux_precomputations%get_ref_field(shifted_mesh%get_id(), np1_index)
         detj_at_w3 => get_detj_at_w3_r_tran(shifted_mesh%get_id())
 
         call mr_sh_w3_start%initialise( sh_w3_fs )
@@ -692,18 +585,19 @@ contains
       ! Conservative clipping by limiting flux, if specified
       ! ---------------------------------------------------------------------- !
 
-      call build_up_flux(sum_flux, flux, transport_runtime, transport_metadata)
+      call build_up_flux(sum_flux, flux, transport_counter, transport_metadata)
 
-      if (enforce_min_value .and. min_val_method == min_val_method_iterative &
-                            .and. .not. no_mono_flag) then
+      if (enforce_min_value .and. min_val_method == min_val_method_iterative) then
         if ( subroutine_timers ) call timer('transport.iterative_min_val')
 
         select case( mr_function_space )
         case ( W3 )
           ! TODO #3706: the flux limiter should use r_tran precision
           div_r_def => get_im3_div(prime_extrusion_mesh_id)
+          div => get_directional_im3_div_r_tran(prime_extrusion_mesh_id, direction_3d)
         case ( Wtheta )
           div_r_def => get_im3_div(shifted_mesh%get_id())
+          div => get_directional_im3_div_r_tran(shifted_mesh%get_id(), direction_3d)
         end select
 
         min_value = transport_metadata%get_min_value()
@@ -776,7 +670,7 @@ contains
 
     ! Clip at end, which will also catch negative values from extrapolation at
     ! model top/bottom when converting back to Wtheta
-    if (enforce_min_value .and. (final_split_step .or. no_mono_flag) ) then
+    if (enforce_min_value .and. final_split_step) then
       min_value = transport_metadata%get_min_value()
       call invoke( inc_max_aX(min_value, field_np1) )
     end if
@@ -796,14 +690,7 @@ contains
       call overwrite_blending_zone_rtran(field_np1, mr_start, depth=transport_boundary_depth)
     end if
 
-    ! Increment the step counter in the transport runtime
-    call transport_runtime%inc_tracer_step_ctr()
-
     call log_field_minmax( LOG_LEVEL_DEBUG, 'field_np1: end_of_consistent_step', field_np1)
-
-    nullify(prime_extrusion_mesh, shifted_mesh, mr_start, transport_runtime,   &
-            rho_d_start, rho_d_np1, w3_fs, w2_fs, sh_w3_fs, sh_w2_fs, div,     &
-            div_r_def, detj_at_w3, face_selector_ew, face_selector_ns)
 
     if ( subroutine_timers ) call timer('transport.end_of_transport')
 
@@ -814,10 +701,12 @@ contains
   !!          up the fluxes from those for each transport step.
   !> @param[in,out] sum_flux           The 3D total flux to be computed
   !> @param[in]     flux_last_step     The flux from the final transport step
-  !> @param[in]     transport_runtime  The transport runtime object
+  !> @param[in]     transport_counter  The transport counter object, which
+  !!                                   has stored the fluxes over the whole
+  !!                                   transport (sub)step
   !> @param[in]     transport_metadata The transport meatadata object for the
   !!                                   transported field
-  subroutine build_up_flux(sum_flux, flux_last_step, transport_runtime,        &
+  subroutine build_up_flux(sum_flux, flux_last_step, transport_counter,        &
                            transport_metadata)
 
     use combine_w2_field_kernel_mod, only: combine_w2_field_kernel_type
@@ -827,19 +716,19 @@ contains
     ! Arguments
     type(r_tran_field_type),         intent(inout) :: sum_flux
     type(r_tran_field_type), target, intent(in)    :: flux_last_step
-    type(transport_runtime_type),    intent(in)    :: transport_runtime
+    type(transport_counter_type),    intent(in)    :: transport_counter
     type(transport_metadata_type),   intent(in)    :: transport_metadata
 
     ! Internal variables
-    integer(kind=i_def)                :: mesh_id, step
-    type(mesh_type),           pointer :: mesh => null()
-    type(function_space_type), pointer :: w2_fs => null()
-    type(function_space_type), pointer :: w2h_fs => null()
-    type(function_space_type), pointer :: w2v_fs => null()
-    type(r_tran_field_type),   pointer :: old_flux => null()
-    type(r_tran_field_type),   pointer :: hori_flux => null()
-    type(integer_field_type),  pointer :: face_selector_ew => null()
-    type(integer_field_type),  pointer :: face_selector_ns => null()
+    integer(kind=i_def)                :: mesh_id, step, num_steps
+    type(mesh_type),           pointer :: mesh
+    type(function_space_type), pointer :: w2_fs
+    type(function_space_type), pointer :: w2h_fs
+    type(function_space_type), pointer :: w2v_fs
+    type(r_tran_field_type),   pointer :: old_flux
+    type(r_tran_field_type),   pointer :: hori_flux
+    type(integer_field_type),  pointer :: face_selector_ew
+    type(integer_field_type),  pointer :: face_selector_ns
     type(r_tran_field_type)            :: sum_hori_flux
     type(r_tran_field_type)            :: sum_vert_flux
     type(r_tran_field_type)            :: combined_flux
@@ -859,11 +748,11 @@ contains
 
     ! Make specific routine for our most common splitting to slightly optimise
     ! for it
-    if ( transport_metadata%get_splitting() ==  splitting_strang_vhv ) then
+    if ( transport_metadata%get_splitting() == splitting_strang_vhv ) then
 
       ! Get fluxes from first two stages of splitting
-      old_flux => transport_runtime%get_flux(mesh_id, 1)
-      hori_flux => transport_runtime%get_flux(mesh_id, 2)
+      old_flux => transport_counter%get_flux(1)
+      hori_flux => transport_counter%get_flux(2)
 
       call sum_vert_flux%initialise(w2v_fs)
       call invoke( X_plus_Y(sum_vert_flux, old_flux, flux_last_step),          &
@@ -884,11 +773,13 @@ contains
       is_flux_3d = .false.
       is_flux_split = .false.
 
-      do step = 1, transport_runtime%get_num_dry_steps()
-        if (step == transport_runtime%get_num_dry_steps()) then
+      num_steps = get_num_split_steps(transport_metadata%get_splitting())
+
+      do step = 1, num_steps
+        if (step == num_steps) then
           old_flux => flux_last_step
         else
-          old_flux => transport_runtime%get_flux(mesh_id, step)
+          old_flux => transport_counter%get_flux(step)
         end if
 
         select case ( old_flux%which_function_space() )
@@ -924,9 +815,6 @@ contains
         end if
       end if
     end if
-
-    nullify(mesh, w2_fs, w2h_fs, w2v_fs, old_flux, hori_flux, &
-            face_selector_ew, face_selector_ns)
 
     if ( subroutine_timers ) call timer('transport.build_up_flux')
 

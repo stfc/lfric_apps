@@ -13,18 +13,20 @@ module transport_field_mod
   use field_mod,                        only: field_type
   use r_tran_field_mod,                 only: r_tran_field_type
   use copy_field_alg_mod,               only: copy_field
-  use log_mod,                          only: log_event, LOG_LEVEL_ERROR, LOG_LEVEL_INFO
+  use log_mod,                          only: log_event,                       &
+                                              LOG_LEVEL_ERROR,                 &
+                                              LOG_LEVEL_INFO
   use ffsl_control_alg_mod,             only: ffsl_control
   use split_transport_mod,              only: split_transport_control
+  use transport_controller_mod,         only: transport_controller_type
+  use transport_counter_mod,            only: transport_counter_type
   use transport_metadata_mod,           only: transport_metadata_type
-  use transport_runtime_alg_mod,        only: transport_runtime_type
-  use transport_runtime_collection_mod, only: get_transport_runtime
-  use transport_enumerated_types_mod,   only: scheme_mol_3d,              &
-                                              scheme_ffsl_3d,             &
-                                              scheme_split,               &
-                                              direction_3d,               &
-                                              equation_form_conservative, &
-                                              equation_form_advective,    &
+  use transport_enumerated_types_mod,   only: scheme_mol_3d,                   &
+                                              scheme_ffsl_3d,                  &
+                                              scheme_split,                    &
+                                              direction_3d,                    &
+                                              equation_form_conservative,      &
+                                              equation_form_advective,         &
                                               equation_form_consistent
   use mol_conservative_alg_mod,         only: mol_conservative_alg
   use mol_advective_alg_mod,            only: mol_advective_alg
@@ -45,32 +47,34 @@ contains
   !!          a field.
   !> @param[in,out] field_np1_rdef     Field to return at end of transport step
   !> @param[in]     field_n_rdef       Field at the start of the transport step
-  !> @param[in]     model_dt_rdef      Time difference across time step
-  !> @param[in]     transport_metadata Contains the configuration options for
-  !!                                   transporting these fields
-
-  subroutine transport_field(field_np1_rdef, field_n_rdef, model_dt_rdef, transport_metadata)
+  !> @param[in,out] transport_controller
+  !!                                   Encapsulating object containing the
+  !!                                   transport counter and precomputations
+  !> @param[in,out] transport_metadata Contains the configuration options for
+  !!                                   transporting the field
+  subroutine transport_field(field_np1_rdef, field_n_rdef,                     &
+                             transport_controller, transport_metadata)
 
     implicit none
 
     ! Arguments
-    type(field_type),              intent(inout) :: field_np1_rdef
-    type(field_type),              intent(in)    :: field_n_rdef
-    real(kind=r_def),              intent(in)    :: model_dt_rdef
-    type(transport_metadata_type), intent(in)    :: transport_metadata
+    type(field_type),                intent(inout) :: field_np1_rdef
+    type(field_type),                intent(in)    :: field_n_rdef
+    type(transport_controller_type), intent(inout) :: transport_controller
+    type(transport_metadata_type),   intent(inout) :: transport_metadata
 
     ! Local conversions to the r_tran precision
     type(r_tran_field_type) :: field_np1
     type(r_tran_field_type) :: field_n
-    real(kind=r_tran)       :: model_dt
 
     ! transfer r_def input to r_tran fields
-    call field_np1%initialise( vector_space = field_np1_rdef%get_function_space()  )
-    call field_n%initialise( vector_space = field_n_rdef%get_function_space()  )
+    call field_np1%initialise( field_np1_rdef%get_function_space() )
+    call field_n%initialise( field_n_rdef%get_function_space() )
     call copy_field( field_n_rdef, field_n )
-    model_dt = real( model_dt_rdef, r_tran )
 
-    call transport_field_r_tran(field_np1, field_n, model_dt, transport_metadata)
+    call transport_field_r_tran(                                               &
+            field_np1, field_n, transport_controller, transport_metadata       &
+    )
 
     ! Transfer back to r_def output
     call copy_field( field_np1, field_np1_rdef )
@@ -78,134 +82,123 @@ contains
   end subroutine transport_field
 
 
-  subroutine transport_field_r_tran(field_np1, field_n, model_dt, transport_metadata)
+  subroutine transport_field_r_tran(field_np1, field_n,                        &
+                                    transport_controller, transport_metadata)
 
     implicit none
 
     ! Arguments
-    type(r_tran_field_type),       intent(inout) :: field_np1
-    type(r_tran_field_type),       intent(in)    :: field_n
-    real(kind=r_tran),             intent(in)    :: model_dt
-    type(transport_metadata_type), intent(in)    :: transport_metadata
+    type(r_tran_field_type),         intent(inout) :: field_np1
+    type(r_tran_field_type), target, intent(in)    :: field_n
+    type(transport_controller_type), intent(inout) :: transport_controller
+    type(transport_metadata_type),   intent(inout) :: transport_metadata
 
-    ! Transport runtime options and sub stepping
-    type(transport_runtime_type), pointer :: transport_runtime
-    type(transport_metadata_type)         :: transport_metadata_option
-    logical(kind=l_def)                   :: advective_flag
-    logical(kind=l_def)                   :: no_mono_flag
-    integer(kind=i_def)                   :: number_of_substeps, step_count
-    real(kind=r_tran)                     :: transport_dt
+    ! Internal variables
+    integer(kind=i_def)                   :: substep_count
+    type(r_tran_field_type),      target  :: field_tmp
+    type(r_tran_field_type),      pointer :: field_ptr
+    type(transport_counter_type), pointer :: transport_counter
 
-    ! Fields
-    type(r_tran_field_type) :: field_in, field_out
+    ! Initialise the counter and set metadata in the transport controller
+    ! This also updates the transport metadata, depending on outer loop
+    call transport_controller%before_transport_field(transport_metadata)
 
-    ! Get transport runtime
-    transport_runtime => get_transport_runtime(field_n%get_mesh())
+    ! Get the transport counter
+    transport_counter => transport_controller%get_transport_counter()
+    call transport_counter%set_field_n(field_n)
 
-    ! Get advective form and no monotonicity flags
-    advective_flag = transport_runtime%get_advective_flag()
-    no_mono_flag   = transport_runtime%get_no_mono_flag()
-
-    ! Change transport_metadata based on semi-implicit first outer transport options
-    transport_metadata_option = transport_metadata
-    if (advective_flag) then
-      ! Set advective options provided field is not density
-      if (transport_metadata_option%get_name() /= 'density') then
-        call transport_metadata_option%set_advective()
-      end if
-    else if (no_mono_flag) then
-      call transport_metadata_option%set_no_mono()
+    ! If we are substepping, we need an intermediate field corresponding to the
+    ! field at the start of each substeps
+    ! field_ptr points to the field at the start of the substep
+    if (transport_counter%get_num_substeps() > 1) then
+      call field_n%copy_field_properties(field_tmp)
+      call invoke( setval_X(field_tmp, field_n) )
+      field_ptr => field_tmp
+    else
+      field_ptr => field_n
     end if
 
-    ! Get the number of substeps
-    number_of_substeps = transport_runtime%get_number_total_substeps()
-    transport_dt = model_dt / real(number_of_substeps, r_tran)
+    ! ------------------------------------------------------------------------ !
+    ! SUBSTEPPING LOOP
+    ! ------------------------------------------------------------------------ !
 
-    ! Set field_in and field_out
-    call field_n%copy_field_properties(field_in)
-    call field_np1%copy_field_properties(field_out)
-    call invoke( setval_X(field_in, field_n),  &
-                 setval_X(field_out, field_n) )
+    do substep_count = 1, transport_counter%get_num_substeps()
 
-    do step_count = 1, number_of_substeps
-
-      ! Reset the counter for tracer transport steps and store nth level field
-      call transport_runtime%reset_tracer_step_ctr()
-      call transport_runtime%set_field_n(field_in)
-      ! Set the substep counter
-      call transport_runtime%set_substep_total_ctr(step_count)
+      call transport_counter%set_field_n(field_ptr)
 
       ! First choose scheme, and for full 3D schemes then choose equation
-      select case ( transport_metadata_option%get_scheme() )
+      select case ( transport_metadata%get_scheme() )
 
-      ! -------------------------------------------------------------------------!
+      ! ---------------------------------------------------------------------- !
       ! Full 3D Method of Lines scheme
-      ! -------------------------------------------------------------------------!
+      ! ---------------------------------------------------------------------- !
       case ( scheme_mol_3d )
         ! Choose form of transport equation
-        select case ( transport_metadata_option%get_equation_form() )
+        select case ( transport_metadata%get_equation_form() )
         case ( equation_form_conservative )
-           call mol_conservative_alg(field_out, field_in, &
-                                     direction_3d, transport_metadata_option)
+           call mol_conservative_alg(field_np1, field_ptr, transport_controller)
 
         case ( equation_form_advective )
-           call mol_advective_alg(field_out, field_in, &
-                                  direction_3d, transport_metadata_option)
+           call mol_advective_alg(field_np1, field_ptr, transport_controller)
 
         case ( equation_form_consistent )
-           call mol_consistent_alg(field_out, field_in, &
-                                   direction_3d, transport_metadata_option)
+           call mol_consistent_alg(field_np1, field_ptr, transport_controller)
 
         case default
-          call log_event('Trying to solve unrecognised form of transport equation', &
-                          LOG_LEVEL_ERROR)
+          call log_event(                                                      &
+                  'Trying to solve unrecognised form of transport equation',   &
+                  LOG_LEVEL_ERROR                                              &
+          )
 
         end select
 
-      ! -------------------------------------------------------------------------!
+      ! ---------------------------------------------------------------------- !
       ! Full 3D Flux-Form Semi-Lagrangian scheme
-      ! -------------------------------------------------------------------------!
+      ! ---------------------------------------------------------------------- !
       case ( scheme_ffsl_3d )
         ! Choose form of transport equation
-        select case ( transport_metadata_option%get_equation_form() )
+        select case ( transport_metadata%get_equation_form() )
         case ( equation_form_conservative, equation_form_advective )
-          call ffsl_control(field_out, field_in, direction_3d, &
-                            transport_dt, transport_metadata_option)
+          call ffsl_control(field_np1, field_ptr, transport_controller)
 
         case ( equation_form_consistent )
           call log_event('Consistent 3D FFSL not implemented', LOG_LEVEL_ERROR)
 
         case default
-          call log_event('Trying to solve unrecognised form of transport equation', &
-                          LOG_LEVEL_ERROR)
+          call log_event(                                                      &
+                  'Trying to solve unrecognised form of transport equation',   &
+                  LOG_LEVEL_ERROR                                              &
+          )
 
         end select
 
-      ! -------------------------------------------------------------------------!
+      ! ---------------------------------------------------------------------- !
       ! Some split horizontal/vertical transport scheme
-      ! -------------------------------------------------------------------------!
+      ! ---------------------------------------------------------------------- !
       case ( scheme_split )
-        call split_transport_control(field_out, field_in, transport_dt, &
-                                     transport_metadata_option)
+        call split_transport_control(field_np1, field_ptr, transport_controller)
 
       case default
-        call log_event('Trying to transport with unrecognised scheme', &
-                        LOG_LEVEL_ERROR)
+        call log_event(                                                        &
+                'Trying to transport with unrecognised scheme',                &
+                LOG_LEVEL_ERROR                                                &
+        )
 
       end select
 
-      if (step_count < number_of_substeps) then
-        call invoke( setval_X(field_in, field_out) )
+      if (substep_count < transport_counter%get_num_substeps()) then
+        call invoke( setval_X(field_tmp, field_np1) )
+
+        ! Increment substep counter
+        call transport_counter%inc_split_step_counter()
+        call transport_counter%inc_substep_counter()
       end if
 
-    end do ! step_count
+    end do ! substep count
 
-    call invoke( setval_X(field_np1, field_out) )
-
-    nullify( transport_runtime )
+    ! Reset any metadata after transporting the field, if necessary
+    call transport_controller%after_transport_field()
 
   end subroutine transport_field_r_tran
-
-
 
 end module transport_field_mod

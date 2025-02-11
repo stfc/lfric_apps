@@ -28,9 +28,11 @@ module limited_area_constants_mod
   use function_space_collection_mod,     only: function_space_collection
   use fs_continuity_mod,                 only: W2, W3, Wtheta
   use sci_geometric_constants_mod,       only: get_coordinates
+  use inventory_by_local_mesh_mod,       only: inventory_by_local_mesh_type
   use inventory_by_mesh_mod,             only: inventory_by_mesh_type
   use io_config_mod,                     only: subroutine_timers
   use lfric_xios_write_mod,              only: write_field_generic
+  use local_mesh_mod,                    only: local_mesh_type
   use log_mod,                           only: log_event,       &
                                                LOG_LEVEL_ERROR, &
                                                LOG_LEVEL_DEBUG
@@ -94,7 +96,7 @@ module limited_area_constants_mod
   type(inventory_by_mesh_type), target :: mask_blend_w3_inventory
   type(inventory_by_mesh_type), target :: mask_blend_wtheta_inventory
   type(inventory_by_mesh_type), target :: mask_boundary_w2_inventory
-  type(inventory_by_mesh_type)         :: onion_layers_inventory
+  type(inventory_by_local_mesh_type)   :: onion_layers_inventory
 
   ! r_solver masks
   type(inventory_by_mesh_type), target :: mask_w2_r_solver_inventory
@@ -681,8 +683,11 @@ contains
     implicit none
 
     integer(kind=i_def),       intent(in) :: mesh_id
+    integer(kind=i_def)                   :: local_mesh_id
     type(mesh_type),              pointer :: mesh
     type(mesh_type),              pointer :: finest_mesh
+    type(mesh_type),              pointer :: prime_mesh
+    type(local_mesh_type),        pointer :: local_mesh
     type(field_type),             pointer :: onion_layers
     logical(kind=l_def)                   :: constant_exists
     type(function_space_type),    pointer :: w3_fs
@@ -693,22 +698,29 @@ contains
     end if
 
     mesh => mesh_collection%get_mesh(mesh_id)
-    constant_exists = onion_layers_inventory%paired_object_exists(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+    local_mesh_id = local_mesh%get_id()
+    constant_exists = onion_layers_inventory%paired_object_exists(local_mesh_id)
 
     if (.not. constant_exists) then
       ! Create constant if it doesn't already exist
 
       ! Check if this is the prime mesh
       finest_mesh => mesh_collection%get_mesh(prime_mesh_name)
-      if (mesh_id == finest_mesh%get_id()) then
+      prime_mesh => mesh_collection%get_mesh(mesh, PRIME_EXTRUSION)
+
+      if (prime_mesh%get_id() == finest_mesh%get_id()) then
 
         if ( subroutine_timers ) call timer('runtime_constants.limited_area')
 
-        w3_fs => function_space_collection%get_fs( mesh, element_order_h, &
-                                                   element_order_v, W3 )
+        w3_fs => function_space_collection%get_fs(                             &
+            prime_mesh, element_order_h, element_order_v, W3                   &
+        )
 
+        ! @TODO #416: onion_layers should be a 2D field
         call onion_layers_inventory%add_field(                                 &
-                onion_layers, w3_fs, mesh, name='onion_layers', halo_depth=2   &
+                onion_layers, w3_fs, local_mesh,                               &
+                name='onion_layers', halo_depth=2                              &
         )
 
         call create_onion_layers( onion_layers )
@@ -727,7 +739,7 @@ contains
     end if
 
     ! Get constant
-    call onion_layers_inventory%get_field(mesh, onion_layers)
+    call onion_layers_inventory%get_field(local_mesh, onion_layers)
 
   end function get_onion_layers
 

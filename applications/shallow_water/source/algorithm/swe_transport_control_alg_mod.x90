@@ -12,6 +12,7 @@ module swe_transport_control_alg_mod
   use constants_mod,                     only: i_def, r_def, l_def, r_tran
   use derived_config_mod,                only: bundle_size
   use sci_enforce_bc_kernel_mod,         only: enforce_bc_kernel_type
+  use flux_precomputations_alg_mod,      only: flux_precomputations_type
   use field_mod,                         only: field_type
   use field_indices_mod,                 only: isw_u, isw_g, isw_b, isw_q
   use finite_element_config_mod,         only: element_order_h, &
@@ -22,11 +23,8 @@ module swe_transport_control_alg_mod
   use function_space_mod,                only: function_space_type
   use function_space_collection_mod,     only: function_space_collection
   use sci_geometric_constants_mod,       only: get_coordinates,      &
-                                               get_panel_id,         &
-                                               get_face_selector_ew, &
-                                               get_face_selector_ns
+                                               get_panel_id
   use integer_field_mod,                 only: integer_field_type
-  use local_mesh_mod,                    only: local_mesh_type
   use log_mod,                           only: log_event,       &
                                                LOG_LEVEL_ERROR, &
                                                LOG_LEVEL_INFO,  &
@@ -43,17 +41,9 @@ module swe_transport_control_alg_mod
                                                momentum_form_momentum, &
                                                momentum_form_vector_invariant
   use transport_config_mod,              only: cheap_update
-  use transport_enumerated_types_mod,    only: scheme_mol_3d, &
-                                               scheme_split,  &
-                                               splitting_hv,  &
-                                               splitting_vh,  &
-                                               splitting_strang_vhv
+  use transport_controller_mod,          only: transport_controller_type
   use transport_metadata_mod,            only: transport_metadata_type
   use transport_metadata_collection_mod, only: transport_metadata_collection_type
-  use transport_runtime_alg_mod,         only: transport_runtime_type
-  use transport_runtime_collection_mod,  only: init_transport_runtime_collection, &
-                                               set_transport_runtime,             &
-                                               get_transport_runtime
   use vorticity_advection_kernel_mod,    only: vorticity_advection_kernel_type
 
   implicit none
@@ -101,9 +91,6 @@ contains
     integer(kind=i_def)           :: config
     type(transport_metadata_type) :: transport_metadata
 
-    integer(kind=i_def), allocatable :: local_mesh_ids(:)
-    type(local_mesh_type),   pointer :: local_mesh => null()
-
     ! Set up metadata field collection
     transport_metadata_collection = transport_metadata_collection_type()
 
@@ -134,13 +121,6 @@ contains
 
     end do
 
-    ! Initialise transport_runtime_collection
-    ! Only one mesh
-    allocate(local_mesh_ids(1))
-    local_mesh => mesh%get_local_mesh()
-    local_mesh_ids(1) = local_mesh%get_id()
-    call init_transport_runtime_collection(local_mesh_ids)
-
   end subroutine swe_transport_control_alg_init
 
 
@@ -155,16 +135,13 @@ contains
   !> @param[in]     outer           Outer (advection) iteration number
   !> @param[in]     wind_prev       (Optional) Estimate of end of timestep wind
   !!                                from previous outer iteration
-  !> @param[in]     geopot_n        Geopotential from before transport (not
-  !!                                multiplied by predictor factor)
   subroutine swe_transport_control_alg_step( advection_inc,   &
                                              advected_fields, &
                                              state_n,         &
                                              state_np1,       &
                                              model_clock,     &
                                              outer,           &
-                                             wind_prev,       &
-                                             geopot_n )
+                                             wind_prev )
 
     use sci_fem_constants_mod,           only: get_mass_matrix
     use operator_mod,                    only: operator_type
@@ -183,7 +160,6 @@ contains
     class(model_clock_type),         intent(in)    :: model_clock
     integer(kind=i_def),             intent(in)    :: outer
     type(field_type),                intent(in), optional :: wind_prev
-    type(field_type),                intent(in), optional :: geopot_n
 
     ! Fields from advected_fields, state_n and state_np1 vector
     type(field_type), pointer :: wind_np1 => null(), &
@@ -200,35 +176,30 @@ contains
     type(field_vector_type) :: prev_inc
 
     ! Function space
-    type(function_space_type), pointer :: w1_fs => null()
-    type(function_space_type), pointer :: w2v_fs => null()
+    type(function_space_type), pointer :: w1_fs
+    type(function_space_type), pointer :: w2v_fs
 
     ! Internal variables
-    logical(kind=l_def) :: cheap_update_flag
-    type(transport_runtime_type), pointer :: transport_runtime_get => null()
-    type(transport_metadata_type), pointer :: transport_metadata => null()
+    logical(kind=l_def) :: cheap_update_step
+    type(transport_controller_type)          :: transport_controller
+    type(transport_metadata_type),   pointer :: transport_metadata
+    type(flux_precomputations_type), pointer :: flux_precomputations
 
     ! Internal variables
-    type(field_type), pointer :: q_mass_flux_get => null()
+    type(field_type), pointer :: q_mass_flux
     type(field_type) :: buoy_inc,     &
                         constant_one, &
                         q_geopot,     &
-                        wind_for_adv, &
-                        q_mass_flux,  &
-                        q_mass_flux_vert
+                        wind_for_adv
 
     ! Coordinates, Panel ID, and Mass Matrix
-    type(field_type),    pointer :: chi(:)   => null()
-    type(field_type),    pointer :: panel_id => null()
-    type(operator_type), pointer :: mm_wb    => null()
-    type(integer_field_type), pointer :: face_selector_ew => null()
-    type(integer_field_type), pointer :: face_selector_ns => null()
+    type(field_type),    pointer :: chi(:)
+    type(field_type),    pointer :: panel_id
+    type(operator_type), pointer :: mm_wb
 
     ! Quadrature
     type(quadrature_xyoz_type)          :: qr
     type(quadrature_rule_gaussian_type) :: quadrature_rule
-
-    real(r_def) :: cast_dt
 
     if ( subroutine_timers ) call timer('swe_transport_control_alg_step')
 
@@ -244,33 +215,30 @@ contains
     wind_np1 => state_np1%vector(isw_u)
     wind_n   => state_n%vector(isw_u)
 
-    ! Set up cheap update flag and store advection_inc from first outer iteration
-    call wind_for_adv%initialise(vector_space = wind_n%get_function_space())
-    call invoke( setval_X(wind_for_adv, wind_n) )
-    if (cheap_update .AND. present(wind_prev)) then
-      cheap_update_flag = .true.
-      if (outer > 2) then
-        call invoke( setval_X(wind_for_adv, wind_prev) )
-      end if
+    ! Determine aspects relating to cheap update steps -------------------------
+    ! Check whether it is a cheap update step
+    cheap_update_step = (cheap_update .and. outer > 1)
+
+    call wind_for_adv%initialise( wind_n%get_function_space() )
+    if (cheap_update .AND. outer > 2 .AND. present(wind_prev) ) then
+      ! Use previous wind in the advecting wind calculation
+      call invoke( setval_X(wind_for_adv, wind_prev) )
     else
-      cheap_update_flag = .false.
+      ! Use wind_n in the advecting wind calculation
+      call invoke( setval_X(wind_for_adv, wind_n) )
     end if
+
     prev_inc = field_vector_type(bundle_size)
     prev_inc = advection_inc
 
-    ! Create transport_runtime object (advecting wind etc)
-    if (present(geopot_n)) then
-      call set_transport_runtime(wind_for_adv, wind_np1, model_clock, outer, &
-                                 cheap_update_flag, rho_d_n_rdef=geopot_n)
-    else
-      call set_transport_runtime(wind_for_adv, wind_np1, model_clock, outer, &
-                                 cheap_update_flag, rho_d_n_rdef=geopot)
-    end if
+    ! Create transport_controller object (advecting wind etc)
+    call transport_controller%initialise(                                      &
+            model_clock, q, wind_for_adv, wind_np1,                            &
+            outer=outer, cheap_update_step=cheap_update_step                   &
+    )
 
     ! Initialise geopotential variables
     call geopot_np1%initialise(vector_space = geopot%get_function_space())
-
-    cast_dt = real( model_clock%get_seconds_per_step(), r_def )
 
     ! ------------------------------------------------------------------------ !
     ! Transport of prognostic variables
@@ -280,8 +248,9 @@ contains
     ! Transport geopotential
     call log_event( "Transporting geopotential...", LOG_LEVEL_INFO)
     transport_metadata => transport_metadata_collection%get_transport_metadata('geopot')
-    call transport_field( geopot_np1, geopot, &
-                          cast_dt, transport_metadata )
+    call transport_field(                                                      &
+            geopot_np1, geopot, transport_controller, transport_metadata       &
+    )
     call invoke( X_minus_Y( advection_inc%vector(isw_g), geopot_np1, &
                             geopot ) )
 
@@ -294,8 +263,9 @@ contains
 
       call log_event( "Transporting buoyancy...", LOG_LEVEL_INFO)
       transport_metadata => transport_metadata_collection%get_transport_metadata('buoyancy')
-      call transport_field( buoyancy_np1, buoyancy, &
-                            cast_dt, transport_metadata )
+      call transport_field(                                                    &
+              buoyancy_np1, buoyancy, transport_controller, transport_metadata &
+      )
       call invoke( X_minus_Y( advection_inc%vector(isw_b), buoyancy_np1, &
                               buoyancy ) )
       ! The increment is now pointwise. Depending upon the temporal discretisation
@@ -307,8 +277,6 @@ contains
                    setval_c(advection_inc%vector(isw_b), 0.0_r_def),      &
                    matrix_vector_kernel_type(advection_inc%vector(isw_b), &
                                              buoy_inc, mm_wb) )
-
-      nullify( mm_wb )
 
     end if
 
@@ -325,9 +293,6 @@ contains
       ! If vector invariant form, calculate the PV mass flux, Q=q*geopot*u
       ! and use this in the momentum equations.
       call log_event( "Transporting PV...", LOG_LEVEL_INFO)
-
-      ! Get transport runtime
-      transport_runtime_get => get_transport_runtime(geopot%get_mesh())
 
       ! Initialise PV variables
       call q_geopot%initialise(vector_space = q%get_function_space())
@@ -348,44 +313,12 @@ contains
       ! Calculate q*phi
       call invoke( X_times_Y(q_geopot,q,geopot) )
       transport_metadata => transport_metadata_collection%get_transport_metadata('q')
-      call transport_field( q_np1, q_geopot, &
-                            cast_dt, transport_metadata )
+      call transport_field(                                                    &
+              q_np1, q_geopot, transport_controller, transport_metadata        &
+      )
 
-      ! The PV mass flux depends on whether splitting has been used
-      ! we require it to be in W2 space
-      call q_mass_flux%initialise(vector_space = wind%get_function_space())
-
-      select case ( transport_metadata%get_scheme() )
-      case ( scheme_mol_3d )
-        q_mass_flux_get => transport_runtime_get%get_dry_flux(geopot%get_mesh_id(), 1)
-        call invoke( setval_X(q_mass_flux, q_mass_flux_get) )
-      case ( scheme_split )
-        ! Get the correct directional flux based on which splitting is used
-        if ( transport_metadata%get_splitting() == splitting_hv ) then
-          ! HV splitting requires flux from first splitting stage
-          q_mass_flux_get => transport_runtime_get%get_dry_flux(geopot%get_mesh_id(), 1)
-        else if ( transport_metadata%get_splitting() == splitting_vh .OR. &
-                  transport_metadata%get_splitting() == splitting_strang_vhv ) then
-          ! VH or VHV splitting requires flux from second splitting stage
-          q_mass_flux_get => transport_runtime_get%get_dry_flux(geopot%get_mesh_id(), 2)
-        else
-          call log_event('Only HV, VH, or VHV splitting is valid for shallow water', &
-                          LOG_LEVEL_ERROR)
-        end if
-        ! Combine W2h and W2v flux parts into a W2 field
-        face_selector_ew => get_face_selector_ew(q_mass_flux%get_mesh_id())
-        face_selector_ns => get_face_selector_ns(q_mass_flux%get_mesh_id())
-        call q_mass_flux_vert%initialise( w2v_fs )
-        call invoke( setval_c(q_mass_flux_vert, 0.0_r_def) )
-        call invoke( combine_w2_field_kernel_type( q_mass_flux,                &
-                                                   q_mass_flux_get,            &
-                                                   q_mass_flux_vert,           &
-                                                   face_selector_ew,           &
-                                                   face_selector_ns ) )
-      case default
-        call log_event('Trying to transport PV with unrecognised scheme', &
-                        LOG_LEVEL_ERROR)
-      end select
+      flux_precomputations => transport_controller%get_flux_precomputations()
+      q_mass_flux => flux_precomputations%get_total_ref_flux()
 
       ! If vector_invariant form, use the PV mass flux for the velocity advection
       ! Mass flux already includes dt
@@ -397,14 +330,14 @@ contains
                                                    constant_one, chi, panel_id, qr), &
                    enforce_bc_kernel_type(advection_inc%vector(isw_u)) )
 
-      nullify( w1_fs, w2v_fs, q_mass_flux_get, chi, panel_id )
-
     case(momentum_form_momentum)
 
       call log_event( "Transporting wind...", LOG_LEVEL_INFO)
       transport_metadata => transport_metadata_collection%get_transport_metadata('wind')
-      call wind_transport_alg( advection_inc%vector(isw_u), wind, &
-                               cast_dt, transport_metadata )
+      call wind_transport_alg(                                                 &
+              advection_inc%vector(isw_u), wind,                               &
+              transport_controller, transport_metadata                         &
+      )
       ! We don't change advection_inc%vector(isw_u) as wind_transport_alg
       ! already returns weak increment
 
@@ -415,7 +348,7 @@ contains
     end select    ! momentum_form
 
     ! If cheap update we need to add the previous iteration state increments
-    if ( cheap_update_flag .AND. outer > 1) then
+    if ( cheap_update .AND. outer > 1) then
       ! Add the previous iteration state increments for geopotential, u and buoyancy
       ! On the second outer iteration we have
       ! advection_inc = dt increment(field,(wind_np1-wind_n)/2)
@@ -430,7 +363,7 @@ contains
       end if
     end if
 
-    nullify(face_selector_ew, face_selector_ns)
+    call transport_controller%finalise()
 
     if ( subroutine_timers ) call timer('swe_transport_control_alg_step')
 
@@ -481,10 +414,8 @@ contains
     type(field_type) :: tracer_n
 
     ! Transport metadata
-    type(transport_metadata_type), pointer :: transport_metadata => null()
-
-    ! Transport time step
-    real(r_def) :: cast_dt
+    type(transport_controller_type)        :: transport_controller
+    type(transport_metadata_type), pointer :: transport_metadata
 
     ! Parameters for transport runtime
     integer(i_def), parameter :: outer = 1
@@ -492,9 +423,8 @@ contains
 
     if ( subroutine_timers ) call timer('swe_transport_control_alg_step')
 
-    ! Create transport_runtime object
-    cast_dt = real( model_clock%get_seconds_per_step(), r_def )
-    call set_transport_runtime(wind_n, wind_np1, model_clock, outer, cheap_update_flag)
+    ! Initialise the main transport controller ---------------------------------
+    call transport_controller%initialise(model_clock, mass_n, wind_n, wind_np1)
 
     ! Initialise transported variables
     call tracer_np1%initialise(vector_space = tracer_const%get_function_space())
@@ -518,8 +448,9 @@ contains
                         LOG_LEVEL_ERROR)
     end select
     ! Transport field
-    call transport_field( tracer_np1, tracer_n, &
-                          cast_dt, transport_metadata )
+    call transport_field(                                                      &
+            tracer_np1, tracer_n, transport_controller, transport_metadata     &
+    )
     ! Divide by mass if conservative
     if (transport_metadata%get_equation_form() == equation_form_conservative) then
       call invoke( inc_X_divideby_Y(tracer_np1, mass_np1))
@@ -544,8 +475,9 @@ contains
                         LOG_LEVEL_ERROR)
     end select
     ! Transport field
-    call transport_field( tracer_np1, tracer_n, &
-                          cast_dt, transport_metadata )
+    call transport_field(                                                      &
+            tracer_np1, tracer_n, transport_controller, transport_metadata     &
+    )
     ! Divide by mass if conservative
     if (transport_metadata%get_equation_form() == equation_form_conservative) then
       call invoke( inc_X_divideby_Y(tracer_np1, mass_np1))
@@ -570,15 +502,16 @@ contains
                         LOG_LEVEL_ERROR)
     end select
     ! Transport field
-    call transport_field( tracer_np1, tracer_n, &
-                          cast_dt, transport_metadata )
+    call transport_field(                                                      &
+            tracer_np1, tracer_n, transport_controller, transport_metadata     &
+    )
     ! Divide by mass if conservative
     if (transport_metadata%get_equation_form() == equation_form_conservative) then
       call invoke( inc_X_divideby_Y(tracer_np1, mass_np1))
     end if
     call invoke( setval_X(tracer_step, tracer_np1 ) )
 
-    nullify( transport_metadata )
+    call transport_controller%finalise()
 
     if ( subroutine_timers ) call timer('swe_tracer_transport_alg')
 
@@ -589,11 +522,11 @@ contains
   !> @brief Calls finalising routines for shallow water transport.
   subroutine swe_transport_control_alg_final()
 
-    use transport_runtime_collection_mod, only: transport_runtime_collection_final
+    use split_transport_utils_mod,        only: finalise_split_transport_utils
 
     implicit none
 
-    call transport_runtime_collection_final()
+    call finalise_split_transport_utils()
 
   end subroutine swe_transport_control_alg_final
 

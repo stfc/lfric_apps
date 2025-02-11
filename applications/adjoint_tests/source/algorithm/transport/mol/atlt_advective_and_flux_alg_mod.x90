@@ -17,19 +17,13 @@ module atlt_advective_and_flux_alg_mod
                                                   LOG_LEVEL_ERROR
   use mesh_mod,                            only : mesh_type
   use model_clock_mod,                     only : model_clock_type
-  use finite_element_config_mod,           only : element_order_h, &
+  use finite_element_config_mod,           only : element_order_h,             &
                                                   element_order_v
-  use fs_continuity_mod,                   only : W2, W3, W2H, W2V
+  use fs_continuity_mod,                   only : W2, W3
   use function_space_collection_mod,       only : function_space_collection
   use transport_metadata_collection_mod,   only : transport_metadata_collection
   use transport_metadata_mod,              only : transport_metadata_type
-  use transport_enumerated_types_mod,      only : direction_3d, &
-                                                  direction_h,  &
-                                                  direction_v
-  use check_configuration_mod,             only : get_required_stencil_depth
-  use inner_from_runtime_rdef_alg_mod,     only : adv_wind_prod_rdef, &
-                                                  adv_wind_inp_prod_rdef
-  use init_from_runtime_alg_mod,           only : init_adv_wind_field
+  use transport_enumerated_types_mod,      only : direction_3d
 
   implicit none
 
@@ -57,21 +51,23 @@ module atlt_advective_and_flux_alg_mod
     type(model_clock_type),   intent(in) :: model_clock
 
     ! Arguments for tl and adj calls
-    type(field_type)        :: mass_flux
-    type(field_type)        :: adv_inc
-    type(field_type)        :: density
-    type(field_type)        :: wind
-    type(field_type)        :: ls_density
-    type(field_type)        :: ls_wind
-    integer(kind=i_def)     :: direction
+    type(field_type)                       :: mass_flux_1
+    type(field_type)                       :: mass_flux_2
+    type(field_type)                       :: adv_inc
+    type(field_type)                       :: density
+    type(field_type)                       :: wind
+    type(field_type)                       :: ls_density
+    type(field_type)                       :: ls_wind
+    integer(kind=i_def)                    :: direction
     type(transport_metadata_type), pointer :: transport_metadata
-    logical(kind=l_def)     :: final_rk_stage
-    real(kind=r_def)        :: dt
-    logical(kind=l_def)     :: do_flux
-    logical(kind=l_def)     :: do_advective
+    logical(kind=l_def)                    :: final_rk_stage
+    real(kind=r_def)                       :: dt
+    logical(kind=l_def)                    :: do_flux
+    logical(kind=l_def)                    :: do_advective
 
     ! Copies of input fields used in inner products
-    type(field_type)        :: mass_flux_input
+    type(field_type)        :: mass_flux_1_input
+    type(field_type)        :: mass_flux_2_input
     type(field_type)        :: adv_inc_input
     type(field_type)        :: density_input
     type(field_type)        :: wind_input
@@ -82,28 +78,23 @@ module atlt_advective_and_flux_alg_mod
 
     ! Inner products
     real(kind=r_def) :: inner1
-    real(kind=r_def) :: mass_flux_inner_prod
+    real(kind=r_def) :: mass_flux_1_inner_prod
+    real(kind=r_def) :: mass_flux_2_inner_prod
     real(kind=r_def) :: adv_inc_inner_prod
     real(kind=r_def) :: density_inner_prod
     real(kind=r_def) :: wind_inner_prod
-    real(kind=r_def), parameter :: adv_inc_sf = 1.0E22_r_def
     real(kind=r_def) :: inner2
-    real(kind=r_def) :: mass_flux_mass_flux_input_inner_prod
+    real(kind=r_def) :: mass_flux_1_mass_flux_1_input_inner_prod
+    real(kind=r_def) :: mass_flux_2_mass_flux_2_input_inner_prod
     real(kind=r_def) :: adv_inc_adv_inc_input_inner_prod
     real(kind=r_def) :: density_density_input_inner_prod
     real(kind=r_def) :: wind_wind_input_inner_prod
-
-    ! Variables used to handle calculations for fields stored in tl_transport_runtime
-    type(r_tran_field_type)                            :: tr_wind_h_inp
-    type(r_tran_field_type)                            :: tr_wind_v_inp
-    integer(kind=i_def)                                :: mesh_id
 
     ! Test parameters and variables
     real(kind=r_def), parameter :: overall_tolerance = 1500.0_r_def
     real(kind=r_def)            :: machine_tol
     real(kind=r_def)            :: relative_diff
 
-    mesh_id = mesh % get_id()
     direction = direction_3d
     transport_metadata => transport_metadata_collection%get_transport_metadata('density')
     final_rk_stage = .true.
@@ -119,10 +110,15 @@ module atlt_advective_and_flux_alg_mod
     do_advective = .true.
 
     ! Initialising fields
-    vector_space_w3_ptr => function_space_collection % get_fs( mesh, element_order_h, element_order_v, W3 )
-    vector_space_w2_ptr => function_space_collection % get_fs( mesh, element_order_h, element_order_v, W2 )
+    vector_space_w3_ptr => function_space_collection % get_fs(                 &
+        mesh, element_order_h, element_order_v, W3                             &
+    )
+    vector_space_w2_ptr => function_space_collection % get_fs(                 &
+        mesh, element_order_h, element_order_v, W2                             &
+    )
 
-    call mass_flux % initialise( vector_space = vector_space_w2_ptr )
+    call mass_flux_1 % initialise( vector_space = vector_space_w2_ptr )
+    call mass_flux_2 % initialise( vector_space = vector_space_w2_ptr )
     call adv_inc % initialise( vector_space = vector_space_w3_ptr )
     call density % initialise( vector_space = vector_space_w3_ptr )
     call wind % initialise( vector_space = vector_space_w2_ptr )
@@ -130,97 +126,102 @@ module atlt_advective_and_flux_alg_mod
     call ls_density % initialise( vector_space = vector_space_w3_ptr )
     call ls_wind % initialise( vector_space = vector_space_w2_ptr )
 
-    call mass_flux_input % initialise( vector_space = vector_space_w2_ptr )
+    call mass_flux_1_input % initialise( vector_space = vector_space_w2_ptr )
+    call mass_flux_2_input % initialise( vector_space = vector_space_w2_ptr )
     call adv_inc_input % initialise( vector_space = vector_space_w3_ptr )
     call density_input % initialise( vector_space = vector_space_w3_ptr )
     call wind_input % initialise( vector_space = vector_space_w2_ptr )
 
-    mass_flux_inner_prod = 0.0_r_def
+    mass_flux_1_inner_prod = 0.0_r_def
+    mass_flux_2_inner_prod = 0.0_r_def
     adv_inc_inner_prod = 0.0_r_def
     density_inner_prod = 0.0_r_def
     wind_inner_prod = 0.0_r_def
 
     ! Initialise values and call the tangent-linear alg.
-    call invoke( setval_random( mass_flux ),             &
-                 setval_x( mass_flux_input, mass_flux ), &
-                 setval_random( adv_inc ),               &
-                 setval_x( adv_inc_input, adv_inc ),     &
-                 setval_random( density ),               &
-                 setval_x( density_input, density ),     &
-                 setval_random( wind ),                  &
-                 setval_x( wind_input, wind ),           &
-                 setval_random( ls_density ),            &
+    call invoke( setval_random( mass_flux_1 ),               &
+                 setval_x( mass_flux_1_input, mass_flux_1 ), &
+                 setval_random( mass_flux_2 ),               &
+                 setval_x( mass_flux_2_input, mass_flux_2 ), &
+                 setval_random( adv_inc ),                   &
+                 setval_x( adv_inc_input, adv_inc ),         &
+                 setval_random( density ),                   &
+                 setval_x( density_input, density ),         &
+                 setval_random( wind ),                      &
+                 setval_x( wind_input, wind ),               &
+                 setval_random( ls_density ),                &
                  setval_random( ls_wind ) )
 
-    call init_adv_wind_field( mesh, tr_wind_h_inp, direction_h )
-    call init_adv_wind_field( mesh, tr_wind_v_inp, direction_v )
-
     ! Tangent linear
-    call tl_advective_and_flux_alg( mass_flux, adv_inc, density, wind,  &
-                                    ls_density, ls_wind, direction,     &
-                                    transport_metadata, final_rk_stage, &
-                                    dt, do_flux, do_advective )
+    call tl_advective_and_flux_alg( mass_flux_1, mass_flux_2, adv_inc,  &
+                                    density, wind, ls_density, ls_wind, &
+                                    direction, transport_metadata,      &
+                                    final_rk_stage, dt,                 &
+                                    do_flux, do_advective )
 
     ! < Mx, Mx >
-    call invoke( x_innerproduct_x( mass_flux_inner_prod, mass_flux ), &
-                 x_innerproduct_x( adv_inc_inner_prod, adv_inc ),     &
-                 x_innerproduct_x( density_inner_prod, density ),     &
+    call invoke( x_innerproduct_x( mass_flux_1_inner_prod, mass_flux_1 ), &
+                 x_innerproduct_x( mass_flux_2_inner_prod, mass_flux_2 ), &
+                 x_innerproduct_x( adv_inc_inner_prod, adv_inc ),         &
+                 x_innerproduct_x( density_inner_prod, density ),         &
                  x_innerproduct_x( wind_inner_prod, wind ) )
 
     inner1 = 0.0_r_def
-    inner1 = inner1 + mass_flux_inner_prod
-    inner1 = inner1 + adv_inc_inner_prod*adv_inc_sf
+    inner1 = inner1 + mass_flux_1_inner_prod
+    inner1 = inner1 + mass_flux_2_inner_prod
+    inner1 = inner1 + adv_inc_inner_prod
     inner1 = inner1 + density_inner_prod
     inner1 = inner1 + wind_inner_prod
     write(log_scratch_space, *) "atlt_advective_and_flux inner products:"
     call log_event( log_scratch_space, LOG_LEVEL_DEBUG )
-    write(log_scratch_space, *) "mass_flux inner product = ", mass_flux_inner_prod
+    write(log_scratch_space, *) "mass_flux_1 inner product = ", mass_flux_1_inner_prod
     call log_event( log_scratch_space, LOG_LEVEL_DEBUG )
-    write(log_scratch_space, *) "adv_inc inner product = ", adv_inc_inner_prod*adv_inc_sf
+    write(log_scratch_space, *) "mass_flux_2 inner product = ", mass_flux_2_inner_prod
+    call log_event( log_scratch_space, LOG_LEVEL_DEBUG )
+    write(log_scratch_space, *) "adv_inc inner product = ", adv_inc_inner_prod
     call log_event( log_scratch_space, LOG_LEVEL_DEBUG )
     write(log_scratch_space, *) "density inner product = ", density_inner_prod
     call log_event( log_scratch_space, LOG_LEVEL_DEBUG )
     write(log_scratch_space, *) "wind inner product = ", wind_inner_prod
     call log_event( log_scratch_space, LOG_LEVEL_DEBUG )
-    call adv_wind_prod_rdef( inner1, mesh_id, direction_h )
-    call adv_wind_prod_rdef( inner1, mesh_id, direction_v )
-
-    ! Scaling fields
-    call invoke( inc_a_times_X( adv_inc_sf, adv_inc ) )
 
     ! Adjoint alg call and inner products
-    mass_flux_mass_flux_input_inner_prod = 0.0_r_def
+    mass_flux_1_mass_flux_1_input_inner_prod = 0.0_r_def
+    mass_flux_2_mass_flux_2_input_inner_prod = 0.0_r_def
     adv_inc_adv_inc_input_inner_prod = 0.0_r_def
     density_density_input_inner_prod = 0.0_r_def
     wind_wind_input_inner_prod = 0.0_r_def
 
     ! Adjoint
-    call atl_advective_and_flux_alg( mass_flux, adv_inc, density, wind,  &
-                                     ls_density, ls_wind, direction,     &
-                                     transport_metadata, final_rk_stage, &
-                                     dt, do_flux, do_advective )
+    call atl_advective_and_flux_alg( mass_flux_1, mass_flux_2, adv_inc,  &
+                                     density, wind, ls_density, ls_wind, &
+                                     direction, transport_metadata,      &
+                                     final_rk_stage, dt,                 &
+                                     do_flux, do_advective )
 
     ! < AMx, x >
-    call invoke( x_innerproduct_y( mass_flux_mass_flux_input_inner_prod, &
-                                   mass_flux,                            &
-                                   mass_flux_input ),                    &
-                 x_innerproduct_y( adv_inc_adv_inc_input_inner_prod,     &
-                                   adv_inc,                              &
-                                   adv_inc_input ),                      &
-                 x_innerproduct_y( density_density_input_inner_prod,     &
-                                   density,                              &
-                                   density_input ),                      &
-                 x_innerproduct_y( wind_wind_input_inner_prod,           &
-                                   wind,                                 &
+    call invoke( x_innerproduct_y( mass_flux_1_mass_flux_1_input_inner_prod, &
+                                   mass_flux_1,                              &
+                                   mass_flux_1_input ),                      &
+                 x_innerproduct_y( mass_flux_2_mass_flux_2_input_inner_prod, &
+                                   mass_flux_2,                              &
+                                   mass_flux_2_input ),                      &
+                 x_innerproduct_y( adv_inc_adv_inc_input_inner_prod,         &
+                                   adv_inc,                                  &
+                                   adv_inc_input ),                          &
+                 x_innerproduct_y( density_density_input_inner_prod,         &
+                                   density,                                  &
+                                   density_input ),                          &
+                 x_innerproduct_y( wind_wind_input_inner_prod,               &
+                                   wind,                                     &
                                    wind_input ) )
 
     inner2 = 0.0_r_def
-    inner2 = inner2 + mass_flux_mass_flux_input_inner_prod
+    inner2 = inner2 + mass_flux_1_mass_flux_1_input_inner_prod
+    inner2 = inner2 + mass_flux_2_mass_flux_2_input_inner_prod
     inner2 = inner2 + adv_inc_adv_inc_input_inner_prod
     inner2 = inner2 + density_density_input_inner_prod
     inner2 = inner2 + wind_wind_input_inner_prod
-    call adv_wind_inp_prod_rdef( inner2, mesh_id, tr_wind_h_inp, direction_h )
-    call adv_wind_inp_prod_rdef( inner2, mesh_id, tr_wind_v_inp, direction_v )
 
     ! Test the inner-product values for equality, allowing for the precision of the active variables
     machine_tol = spacing( max( abs( inner1 ), abs( inner2 ) ) )

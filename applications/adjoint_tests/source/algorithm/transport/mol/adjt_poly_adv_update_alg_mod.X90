@@ -68,9 +68,15 @@ module adjt_poly_adv_update_alg_mod
     real(kind=r_tran)            :: machine_tol
     real(kind=r_tran)            :: relative_diff
 
-    vector_space_w2h_ptr => function_space_collection % get_fs(mesh, element_order_h, element_order_v, w2h)
-    vector_space_wt_md_ptr => function_space_collection % get_fs(mesh, element_order_h, element_order_v, wtheta, ndata)
-    vector_space_wtheta_ptr => function_space_collection % get_fs(mesh, element_order_h, element_order_v, wtheta)
+    vector_space_w2h_ptr => function_space_collection % get_fs(mesh,           &
+        element_order_h, element_order_v, w2h                                  &
+    )
+    vector_space_wt_md_ptr => function_space_collection % get_fs(mesh,         &
+        element_order_h, element_order_v, wtheta, ndata                        &
+    )
+    vector_space_wtheta_ptr => function_space_collection % get_fs(mesh,        &
+        element_order_h, element_order_v, wtheta                               &
+    )
     call advective % initialise(vector_space=vector_space_wtheta_ptr, name='advective')
     call reconstruction % initialise(vector_space=vector_space_wt_md_ptr, name='reconstruction')
     call reconstruction % copy_field_properties( dummy_md )

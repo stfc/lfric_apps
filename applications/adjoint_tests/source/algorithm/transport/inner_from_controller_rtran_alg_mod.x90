@@ -1,0 +1,297 @@
+!-----------------------------------------------------------------------------
+! (c) Crown copyright 2025 Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-----------------------------------------------------------------------------
+
+!> @brief Module to get inner product of fields from transport controller at r_tran precision
+
+module inner_from_controller_rtran_alg_mod
+
+  use constants_mod,                       only : i_def, l_def, r_def, r_tran
+  use r_tran_field_mod,                    only : r_tran_field_type
+  use transport_controller_mod,            only : transport_controller_type
+  use flux_precomputations_alg_mod,        only : flux_precomputations_type
+  use transport_counter_mod,               only : transport_counter_type
+  use log_mod,                             only : log_event,       &
+                                                  LOG_LEVEL_DEBUG, &
+                                                  log_scratch_space
+
+  implicit none
+
+  private
+
+  public :: flux_pc_prod_rtran
+  public :: flux_pc_inp_prod_rtran
+  public :: flux_counter_prod_rtran
+  public :: flux_counter_inp_prod_rtran
+  public :: field_n_counter_prod_rtran
+  public :: field_n_counter_inp_prod_rtran
+
+  contains
+  !=============================================================================
+  !> @brief Increments the rtran inner product by flux_pc_fields.flux_pc_fields
+  !> @param[in,out]  inner                 Inner product (rtran) to increment
+  !> @param[in,out]  transport_controller  Transport controller object containing the flux precomputations
+  !> @param[in]      mesh_idx              The mesh index of the desired fields
+  !> @param[in]      flux_sf               (Optional) scale factor for the increment
+  subroutine flux_pc_prod_rtran( inner,                &
+                                 transport_controller, &
+                                 mesh_idx,             &
+                                 flux_sf )
+    implicit none
+
+    ! Arguments
+    real(kind=r_tran),               intent(inout) :: inner
+    type(transport_controller_type), intent(inout) :: transport_controller
+    integer(kind=i_def),                intent(in) :: mesh_idx
+    real(kind=r_tran),        optional, intent(in) :: flux_sf
+
+    ! Internal variables
+    type(flux_precomputations_type),       pointer :: flux_pc
+    type(r_tran_field_type),               pointer :: ref_flux_ptr
+    integer(kind=i_def)                            :: step
+    integer(kind=i_def)                            :: num_steps
+    integer(kind=i_def)                            :: mesh_id_from_idx
+    real(kind=r_def)                               :: flux_inner_prod
+
+    flux_pc => transport_controller % get_flux_precomputations()
+    mesh_id_from_idx = flux_pc % get_mesh_id_from_idx( mesh_idx )
+    num_steps = flux_pc % get_num_steps()
+    do step = 1, num_steps
+      ! We skip the initialisation error checking because we
+      ! have explicit behaviour for the input generation based on
+      ! whether or not it is initialised.
+      ref_flux_ptr => flux_pc % get_ref_flux( mesh_id_from_idx, &
+                                              step,             &
+                                              skip_check_init = .true._l_def )
+
+      flux_inner_prod = 0.0_r_def
+      if ( ref_flux_ptr % is_initialised() ) then
+        call invoke( x_innerproduct_x( flux_inner_prod, ref_flux_ptr ) )
+
+        if( present(flux_sf) ) then
+          inner = inner + real( flux_inner_prod, r_tran )*flux_sf
+          call invoke( inc_a_times_X(flux_sf, ref_flux_ptr) )
+          write(log_scratch_space, *) "Flux precomputations ref_flux(step = ", step, ") inner prod = ", &
+                                      real( flux_inner_prod, r_tran )*flux_sf
+        else
+          inner = inner + real( flux_inner_prod, r_tran )
+          write(log_scratch_space, *) "Flux precomputations ref_flux(step = ", step, ") inner prod = ", &
+                                      real( flux_inner_prod, r_tran )
+        end if
+        call log_event( log_scratch_space, LOG_LEVEL_DEBUG )
+      end if
+    end do
+
+  end subroutine flux_pc_prod_rtran
+
+  !=============================================================================
+  !> @brief Increments the rtran inner product by flux_pc_fields.flux_pc_fields_inp
+  !> @param[in,out]  inner                 Inner product (rtran) to increment
+  !> @param[in,out]  transport_controller  Transport controller object containing the flux precomputations
+  !> @param[in]      mesh_idx              The mesh index of the desired fields
+  !> @param[in]      flux_pc_inp           Flux precomputations input fields at start of adjoint test
+  subroutine flux_pc_inp_prod_rtran( inner,                &
+                                     transport_controller, &
+                                     mesh_idx,             &
+                                     flux_pc_inp )
+    implicit none
+
+    ! Arguments
+    real(kind=r_tran),                  intent(inout) :: inner
+    type(transport_controller_type),    intent(inout) :: transport_controller
+    integer(kind=i_def),                   intent(in) :: mesh_idx
+    type(r_tran_field_type), dimension(:), intent(in) :: flux_pc_inp
+
+    ! Internal variables
+    type(flux_precomputations_type),          pointer :: flux_pc
+    type(r_tran_field_type),                  pointer :: ref_flux_ptr
+    integer(kind=i_def)                               :: step
+    integer(kind=i_def)                               :: num_steps
+    integer(kind=i_def)                               :: mesh_id_from_idx
+    real(kind=r_def)                                  :: flux_inner_prod
+
+    flux_pc => transport_controller % get_flux_precomputations()
+    mesh_id_from_idx = flux_pc % get_mesh_id_from_idx( mesh_idx )
+    num_steps = flux_pc % get_num_steps()
+    do step = 1, num_steps
+      ! We skip the initialisation error checking because we
+      ! have explicit behaviour for the input generation based on
+      ! whether or not it is initialised.
+      ref_flux_ptr => flux_pc % get_ref_flux( mesh_id_from_idx, &
+                                              step,             &
+                                              skip_check_init = .true._l_def )
+
+      flux_inner_prod = 0.0_r_def
+      if ( ref_flux_ptr % is_initialised() ) then
+        call invoke( x_innerproduct_y( flux_inner_prod, &
+                                       ref_flux_ptr,    &
+                                       flux_pc_inp(step) ) )
+        inner = inner + real( flux_inner_prod, r_tran )
+      end if
+    end do
+
+  end subroutine flux_pc_inp_prod_rtran
+
+  !=============================================================================
+  !> @brief Increments the rtran inner product by transport_counter_flux_fields.transport_counter_flux_fields
+  !> @param[in,out]  inner                 Inner product (rtran) to increment
+  !> @param[in,out]  transport_controller  Transport controller object containing the transport counter
+  !> @param[in]      flux_sf               (Optional) scale factor for the increment
+  subroutine flux_counter_prod_rtran( inner,                &
+                                      transport_controller, &
+                                      flux_sf )
+    implicit none
+
+    ! Arguments
+    real(kind=r_tran),               intent(inout) :: inner
+    type(transport_controller_type), intent(inout) :: transport_controller
+    real(kind=r_tran),        optional, intent(in) :: flux_sf
+
+    ! Internal variables
+    type(transport_counter_type),          pointer :: transport_counter
+    type(r_tran_field_type),               pointer :: flux_ptr
+    integer(kind=i_def)                            :: step
+    integer(kind=i_def)                            :: num_steps
+    real(kind=r_def)                               :: flux_inner_prod
+
+    transport_counter => transport_controller % get_transport_counter()
+    num_steps = transport_counter % get_num_split_steps_per_substep() - 1
+    do step = 1, num_steps
+      flux_ptr => transport_counter % get_flux( step )
+
+      flux_inner_prod = 0.0_r_def
+      if ( flux_ptr % is_initialised() ) then
+        call invoke( x_innerproduct_x( flux_inner_prod, flux_ptr ) )
+
+        if( present(flux_sf) ) then
+          inner = inner + real( flux_inner_prod, r_tran )*flux_sf
+          call invoke( inc_a_times_X(flux_sf, flux_ptr) )
+          write(log_scratch_space, *) "Transport counter flux(step = ", step, ") inner prod = ", &
+                                      real( flux_inner_prod, r_tran )*flux_sf
+        else
+          inner = inner + real( flux_inner_prod, r_tran )
+          write(log_scratch_space, *) "Transport counter flux(step = ", step, ") inner prod = ", &
+                                      real( flux_inner_prod, r_tran )
+        end if
+        call log_event( log_scratch_space, LOG_LEVEL_DEBUG )
+      end if
+    end do
+
+  end subroutine flux_counter_prod_rtran
+
+  !=============================================================================
+  !> @brief Increments the rtran inner product by transport_counter_flux_fields.transport_counter_flux_fields_inp
+  !> @param[in,out]  inner                 Inner product (rtran) to increment
+  !> @param[in,out]  transport_controller  Transport controller object containing the transport counter
+  !> @param[in]      flux_counter_inp      Transport counter input fields at start of adjoint test
+  subroutine flux_counter_inp_prod_rtran( inner,             &
+                                          transport_controller, &
+                                          flux_counter_inp )
+    implicit none
+
+    ! Arguments
+    real(kind=r_tran),                  intent(inout) :: inner
+    type(transport_controller_type),    intent(inout) :: transport_controller
+    type(r_tran_field_type), dimension(:), intent(in) :: flux_counter_inp
+
+    ! Internal variables
+    type(transport_counter_type),             pointer :: transport_counter
+    type(r_tran_field_type),                  pointer :: flux_ptr
+    integer(kind=i_def)                               :: step
+    integer(kind=i_def)                               :: num_steps
+    real(kind=r_def)                                  :: flux_inner_prod
+
+    transport_counter => transport_controller % get_transport_counter()
+    num_steps = transport_counter % get_num_split_steps_per_substep() - 1
+    do step = 1, num_steps
+      flux_ptr => transport_counter % get_flux( step )
+
+      flux_inner_prod = 0.0_r_def
+      if ( flux_ptr % is_initialised() ) then
+        call invoke( x_innerproduct_y( flux_inner_prod, &
+                                       flux_ptr,        &
+                                       flux_counter_inp(step) ) )
+        inner = inner + real( flux_inner_prod, r_tran )
+      end if
+    end do
+
+  end subroutine flux_counter_inp_prod_rtran
+
+  !=============================================================================
+  !> @brief Increments the rtran inner product by transport_counter_field_n.transport_counter_field_n
+  !> @param[in,out]  inner                 Inner product (rtran) to increment
+  !> @param[in,out]  transport_controller  Transport controller object containing the transport counter
+  !> @param[in]      field_n_sf            (Optional) scale factor for the increment
+  subroutine field_n_counter_prod_rtran( inner,                &
+                                         transport_controller, &
+                                         field_n_sf )
+    implicit none
+
+    ! Arguments
+    real(kind=r_tran),               intent(inout) :: inner
+    type(transport_controller_type), intent(inout) :: transport_controller
+    real(kind=r_tran),        optional, intent(in) :: field_n_sf
+
+    ! Internal variables
+    type(transport_counter_type),          pointer :: transport_counter
+    type(r_tran_field_type),               pointer :: field_n_ptr
+    real(kind=r_def)                               :: field_n_inner_prod
+
+    transport_counter => transport_controller % get_transport_counter()
+    field_n_ptr => transport_counter % get_field_n()
+
+    if ( field_n_ptr % is_initialised() ) then
+      field_n_inner_prod = 0.0_r_def
+      call invoke( x_innerproduct_x( field_n_inner_prod, field_n_ptr ) )
+
+      if( present(field_n_sf) ) then
+        inner = inner + real( field_n_inner_prod, r_tran )*field_n_sf
+        call invoke( inc_a_times_X(field_n_sf, field_n_ptr) )
+        write(log_scratch_space, *) "Transport counter field_n inner prod = ", &
+                                    real( field_n_inner_prod, r_tran )*field_n_sf
+      else
+        inner = inner + real( field_n_inner_prod, r_tran )
+        write(log_scratch_space, *) "Transport counter field_n inner prod = ", &
+                                    real( field_n_inner_prod, r_tran )
+      end if
+      call log_event( log_scratch_space, LOG_LEVEL_DEBUG )
+    end if
+
+  end subroutine field_n_counter_prod_rtran
+
+  !=============================================================================
+  !> @brief Increments the rtran inner product by transport_counter_field_n.transport_counter_field_n_inp
+  !> @param[in,out]  inner                 Inner product (rtran) to increment
+  !> @param[in,out]  transport_controller  Transport controller object containing the transport counter
+  !> @param[in]      field_n_counter_inp   Transport counter input fields at start of adjoint test
+  subroutine field_n_counter_inp_prod_rtran( inner,                &
+                                             transport_controller, &
+                                             field_n_counter_inp )
+    implicit none
+
+    ! Arguments
+    real(kind=r_tran),               intent(inout) :: inner
+    type(transport_controller_type), intent(inout) :: transport_controller
+    type(r_tran_field_type),            intent(in) :: field_n_counter_inp
+
+    ! Internal variables
+    type(transport_counter_type),          pointer :: transport_counter
+    type(r_tran_field_type),               pointer :: field_n_ptr
+    real(kind=r_def)                               :: field_n_inner_prod
+
+    transport_counter => transport_controller % get_transport_counter()
+    field_n_ptr => transport_counter % get_field_n()
+
+    if ( field_n_ptr % is_initialised() ) then
+      field_n_inner_prod = 0.0_r_def
+      call invoke( x_innerproduct_y( field_n_inner_prod, &
+                                     field_n_ptr,        &
+                                     field_n_counter_inp ) )
+      inner = inner + real( field_n_inner_prod, r_tran )
+    end if
+
+  end subroutine field_n_counter_inp_prod_rtran
+
+end module inner_from_controller_rtran_alg_mod

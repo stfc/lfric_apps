@@ -27,6 +27,7 @@ module sl_support_mod
 
   public :: monotone_cubic_sl
   public :: monotone_quintic_sl
+  public :: compute_linear_coeffs
   public :: compute_cubic_coeffs
   public :: compute_quintic_coeffs
   public :: compute_cubic_hermite_coeffs
@@ -255,11 +256,10 @@ module sl_support_mod
   !> @param[in]  zg  The grid points where the data is located
   !> @param[out] sc  The cubic-stencil used for interpolation for each point
   !> @param[out] cc  The cubic interpolation weights
-  !> @param[out] cl  Linear weights
   !> @param[in]  nzi The size of interpolation points
   !> @param[in]  nzg The size of the grid-data
   !-------------------------------------------------------------------------------
-  subroutine compute_cubic_coeffs(zi,zg,dz,sc,cc,cl,nzi,nzg)
+  subroutine compute_cubic_coeffs(zi,zg,dz,sc,cc,nzi,nzg)
 
     implicit none
 
@@ -270,7 +270,6 @@ module sl_support_mod
     real(kind=r_tran),   dimension(nzg),   intent(in)  :: dz
     real(kind=r_tran),   dimension(4,nzi), intent(out) :: cc
     integer(kind=i_def), dimension(4,nzi), intent(out) :: sc
-    real(kind=r_tran),   dimension(2,nzi), intent(out) :: cl
 
     ! Local variables
     real(kind=r_tran)   :: z1, z2, z3, z4, xi
@@ -309,17 +308,13 @@ module sl_support_mod
       cc(3,k) = n3/d3
       cc(4,k) = n4/d4
 
-      ! linear weights
-      cl(1,k) = (z3-xi)/(z3-z2)
-      cl(2,k) = 1.0_r_tran - cl(1,k)
-
       ! Next to boundaries there are not enough points for cubic
       ! so revert to linear
 
       if( sc(1,k) == sc(2,k) .or. sc(3,k) == sc(4,k) ) then
         cc(1,k) = 0.0_r_tran
-        cc(2,k) = cl(1,k)
-        cc(3,k) = cl(2,k)
+        cc(2,k) = (z3-xi)/(z3-z2)
+        cc(3,k) = 1.0_r_tran - cc(2,k)
         cc(4,k) = 0.0_r_tran
       end if
     end do
@@ -334,11 +329,10 @@ module sl_support_mod
   !> @param[in]  zg  The grid points where the data is located
   !> @param[out] sc  The cubic-stencil used for interpolation for each point
   !> @param[out] cc  The cubic interpolation weights
-  !> @param[out] cl  Linear weights
   !> @param[in]  nzi The size of interpolation points
   !> @param[in]  nzg The size of the grid-data
   !-------------------------------------------------------------------------------
-  subroutine compute_cubic_hermite_coeffs(zi,zg,dz,sc,cc,cl,nzi,nzg)
+  subroutine compute_cubic_hermite_coeffs(zi,zg,dz,sc,cc,nzi,nzg)
 
     implicit none
 
@@ -349,7 +343,6 @@ module sl_support_mod
     real(kind=r_tran),   dimension(nzg),   intent(in)  :: dz
     real(kind=r_tran),   dimension(4,nzi), intent(out) :: cc
     integer(kind=i_def), dimension(4,nzi), intent(out) :: sc
-    real(kind=r_tran),   dimension(2,nzi), intent(out) :: cl
 
     ! Local variables
     real(kind=r_tran)   :: xi, alfa, beta, inv_1p_alfa, inv_1p_beta
@@ -394,12 +387,45 @@ module sl_support_mod
         cc(4,k) = c4*inv_1p_beta
       end if
 
+    end do
+
+  end subroutine compute_cubic_hermite_coeffs
+
+  !-------------------------------------------------------------------------------
+  !> @breif   This subroutine computes cubic-Hermite weights.
+  !> @details Compute the cubic-Hermite interpolation weights for vertical
+  !!          semi-Lagrangian advective transport.
+  !> @param[in]  zi  The interpolation points
+  !> @param[in]  zg  The grid points where the data is located
+  !> @param[out] cl  Linear weights
+  !> @param[in]  nzi The size of interpolation points
+  !> @param[in]  nzg The size of the grid-data
+  !-------------------------------------------------------------------------------
+  subroutine compute_linear_coeffs(zi,zg,dz,cl,nzi,nzg)
+
+    implicit none
+
+    ! Arguments
+    integer(kind=i_def),                   intent(in)  :: nzi, nzg
+    real(kind=r_tran),   dimension(nzi),   intent(in)  :: zi
+    real(kind=r_tran),   dimension(nzg),   intent(in)  :: zg
+    real(kind=r_tran),   dimension(nzg),   intent(in)  :: dz
+    real(kind=r_tran),   dimension(2,nzi), intent(out) :: cl
+
+    ! Local variables
+    real(kind=r_tran)   :: xi
+    integer(kind=i_def) :: k, km
+
+    do k = 1, nzi
+      km = local_point_1d_array(zi(k), zg, 1, nzg)
+      xi = (zi(k) - zg(km))/dz(km)
+
       ! linear weights
       cl(2,k) = xi
       cl(1,k) = 1.0_r_tran - cl(2,k)
     end do
 
-  end subroutine compute_cubic_hermite_coeffs
+  end subroutine compute_linear_coeffs
 
   !-------------------------------------------------------------------------------
   !> @details This subroutine computes the quintic-Lagrange weights.
@@ -409,11 +435,10 @@ module sl_support_mod
   !> @param[in]  zg        The grid points where the data is located
   !> @param[out] sq        The quintic-stencil used for interpolation for each point
   !> @param[out] cq        The quintic interpolation weights
-  !> @param[out] cl        Linear weights
   !> @param[in]  nzi       The size of interpolation points
   !> @param[in]  nzg       The size of the grid-data
   !-------------------------------------------------------------------------------
-  subroutine compute_quintic_coeffs(zi,zg,dz,sq,cq,cl,nzi,nzg)
+  subroutine compute_quintic_coeffs(zi,zg,dz,sq,cq,nzi,nzg)
 
     implicit none
 
@@ -424,7 +449,6 @@ module sl_support_mod
     real(kind=r_tran),   dimension(nzg),   intent(in)  :: dz
     real(kind=r_tran),   dimension(6,nzi), intent(out) :: cq
     integer(kind=i_def), dimension(6,nzi), intent(out) :: sq
-    real(kind=r_tran),   dimension(2,nzi), intent(out) :: cl
 
     ! Local variables
     real(kind=r_tran)   :: z1, z2, z3, z4, z5, z6, xi
@@ -473,10 +497,6 @@ module sl_support_mod
       cq(5,k) = n5/d5
       cq(6,k) = n6/d6
 
-      ! linear weights
-      cl(1,k) = (z4-xi)/(z4-z3)
-      cl(2,k) = 1.0_r_tran - cl(1,k)
-
       if( sq(1,k) == sq(2,k) .or. sq(5,k) == sq(6,k) ) then
         ! Revert to cubic weights
         d1 = (z2-z3)*(z2-z4)*(z2-z5)
@@ -501,8 +521,8 @@ module sl_support_mod
         ! Revert to linear weights
         cq(1,k) = 0.0_r_tran
         cq(2,k) = 0.0_r_tran
-        cq(3,k) = cl(1,k)
-        cq(4,k) = cl(2,k)
+        cq(3,k) = (z4-xi)/(z4-z3)
+        cq(4,k) = 1.0_r_tran - cq(3,k)
         cq(5,k) = 0.0_r_tran
         cq(6,k) = 0.0_r_tran
       end if

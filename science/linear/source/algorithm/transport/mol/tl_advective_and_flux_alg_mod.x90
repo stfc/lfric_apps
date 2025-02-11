@@ -46,7 +46,10 @@ contains
   !============================================================================!
   !> @brief Computes the tangent linear flux F and advective increment
   !> @details Compute the tangent linear mass flux and advective increment
-  !> @param[in,out] mass_flux           ACTIVE: mass flux to compute
+  !> @param[in,out] mass_flux_1         ACTIVE: mass flux to compute from
+  !!                                    linear wind and perturbation field
+  !> @param[in,out] mass_flux_2         ACTIVE: mass flux to compute from
+  !!                                    perturbation wind and linear field
   !> @param[in,out] adv_inc             ACTIVE: advective increment to compute
   !> @param[in]     density             ACTIVE: W3 field to transport
   !> @param[in]     wind                ACTIVE: transporting wind field
@@ -58,16 +61,18 @@ contains
   !> @param[in]     dt                  Advection time step
   !> @param[in]     do_flux             Flag to compute mass_flux = wind*density
   !> @param[in]     do_advective        Flag to compute adv_inc = wind.grad(density)
-  subroutine tl_advective_and_flux_alg(mass_flux, adv_inc, density, wind, &
-                                       ls_density, ls_wind, direction,    &
-                                       transport_metadata, final_rk_stage, &
-                                       dt, do_flux, do_advective)
+  subroutine tl_advective_and_flux_alg(mass_flux_1, mass_flux_2, adv_inc,      &
+                                       density, wind, ls_density, ls_wind,     &
+                                       direction, transport_metadata,          &
+                                       final_rk_stage, dt,                     &
+                                       do_flux, do_advective)
 
     implicit none
 
+    type(field_type),              intent(inout) :: mass_flux_1, mass_flux_2
     type(field_type),              intent(in)    :: density, wind
     type(field_type),              intent(in)    :: ls_density, ls_wind
-    type(field_type),              intent(inout) :: mass_flux, adv_inc
+    type(field_type),              intent(inout) :: adv_inc
     integer(kind=i_def),           intent(in)    :: direction
     type(transport_metadata_type), intent(in)    :: transport_metadata
     logical(kind=l_def),           intent(in)    :: final_rk_stage
@@ -77,7 +82,6 @@ contains
 
     ! Internal variables
     type(field_type)             :: adv_inc_1, adv_inc_2
-    type(field_type)             :: mass_flux_1, mass_flux_2
     type(field_type)             :: reversed_ls_wind
     type(mesh_type),     pointer :: mesh => null()
     integer(kind=i_def)                :: ndata
@@ -133,8 +137,6 @@ contains
 
         if ( do_flux ) then
           ! Obtain mass flux F = rho * u_ls + rho_ls * u
-          call mass_flux_1%initialise( wind%get_function_space() )
-          call mass_flux_2%initialise( wind%get_function_space() )
           if ( do_horizontal ) then
             ! To properly initialise mass_flux_2, we need to call kernel twice -
             ! once with the usual ls_wind to determine direction, another with the
@@ -159,7 +161,6 @@ contains
                          tl_vertical_mass_flux_kernel_type(mass_flux_2, ls_wind, wind,  &
                                                            ls_reconstruction_field) )
           end if
-          call invoke( X_plus_Y(mass_flux, mass_flux_1, mass_flux_2) )
         end if
 
         ! Compute the advective update m3_inv * u.grad(density)

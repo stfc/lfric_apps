@@ -15,6 +15,7 @@ module tl_moist_mr_transport_alg_mod
                                             LOG_LEVEL_ERROR
   use mr_indices_mod,                 only: nummr
   use timer_mod,                      only: timer
+  use tl_transport_controller_mod,    only: tl_transport_controller_type
   use transport_enumerated_types_mod, only: equation_form_advective, &
                                             equation_form_conservative
   use tl_transport_field_mod,         only: tl_transport_field
@@ -38,25 +39,28 @@ contains
   !> @param[in]     mr_in      ACTIVE  Input perturbation state for moisture
   !> @param[in]     ls_mr_in   PASSIVE Lin. state for moisture mixing ratios
   !> @param[in]     nummr_to_transport Number of moisture species to transport
-  !> @param[in]     model_dt           Model timestep
-  !> @param[in]     transport_metadata Contains the configuration options for
-  !!                                   transporting these fields
-  subroutine tl_moist_mr_transport_alg(mr_out, mr_in, ls_mr_in,      &
-                                       nummr_to_transport, model_dt, &
+  !> @param[in,out] tl_transport_controller
+  !!                           Object controlling transport
+  !> @param[in,out] transport_metadata
+  !!                           Contains the configuration options for
+  !!                           transporting these fields
+  subroutine tl_moist_mr_transport_alg(mr_out, mr_in, ls_mr_in,                &
+                                       nummr_to_transport,                     &
+                                       tl_transport_controller,                &
                                        transport_metadata)
 
     implicit none
 
     ! Arguments
-    type(field_type),              intent(inout) :: mr_out(nummr)
-    type(field_type),              intent(in)    :: mr_in(nummr)
-    type(field_type),              intent(in)    :: ls_mr_in(nummr)
-    integer(kind=i_def),           intent(in)    :: nummr_to_transport
-    real(kind=r_def),              intent(in)    :: model_dt
-    type(transport_metadata_type), intent(in)    :: transport_metadata
+    type(field_type),                   intent(inout) :: mr_out(nummr)
+    type(field_type),                   intent(in)    :: mr_in(nummr)
+    type(field_type),                   intent(in)    :: ls_mr_in(nummr)
+    integer(kind=i_def),                intent(in)    :: nummr_to_transport
+    type(tl_transport_controller_type), intent(inout) :: tl_transport_controller
+    type(transport_metadata_type),      intent(inout) :: transport_metadata
 
     ! Internal variables
-    integer(kind=i_def)                :: imr
+    integer(kind=i_def) :: imr
 
     if ( subroutine_timers ) call timer('tl moist mixing ratio transport')
 
@@ -71,8 +75,10 @@ contains
       ! Simply transport all the mixing ratio fields as they are in Wtheta
 
       do imr = 1, nummr_to_transport
-        call tl_transport_field(mr_out(imr), mr_in(imr), ls_mr_in(imr), &
-                                model_dt, transport_metadata)
+        call tl_transport_field(                                               &
+                mr_out(imr), mr_in(imr), ls_mr_in(imr),                        &
+                tl_transport_controller, transport_metadata                    &
+        )
       end do
 
     ! ------------------------------------------------------------------------ !

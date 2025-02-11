@@ -30,8 +30,9 @@ module wind_transport_alg_mod
   use mesh_mod,                       only: mesh_type
   use operator_mod,                   only: operator_type
   use timer_mod,                      only: timer
-  use transport_enumerated_types_mod, only: equation_form_advective
   use transport_config_mod,           only: broken_w2_projection
+  use transport_controller_mod,       only: transport_controller_type
+  use transport_enumerated_types_mod, only: equation_form_advective
   use transport_field_mod,            only: transport_field
   use transport_metadata_mod,         only: transport_metadata_type
 
@@ -53,10 +54,13 @@ contains
   !!                                   increment to the wind multiplied by the
   !!                                   W2 mass matrix.
   !> @param[in]     wind_n             Wind field at start of transport step
-  !> @param[in]     model_dt           Model timestep
-  !> @param[in]     transport_metadata Contains the configuration options for
+  !> @param[in,out] transport_controller
+  !!                                   Encapsulating object containing the
+  !!                                   transport counter and precomputations
+  !> @param[in,out] transport_metadata Contains the configuration options for
   !!                                   transporting these fields
-  subroutine wind_transport_alg(rhs_u, wind_n, model_dt, transport_metadata)
+  subroutine wind_transport_alg(rhs_u, wind_n, transport_controller,           &
+                                transport_metadata)
 
     use dg_matrix_vector_kernel_mod,      only: dg_matrix_vector_kernel_type
     use dg_inc_matrix_vector_kernel_mod,  only: dg_inc_matrix_vector_kernel_type
@@ -67,27 +71,27 @@ contains
     implicit none
 
     ! Arguments
-    type(field_type),              intent(inout) :: rhs_u
-    type(field_type),              intent(in)    :: wind_n
-    real(kind=r_def),              intent(in)    :: model_dt
-    type(transport_metadata_type), intent(in)    :: transport_metadata
+    type(field_type),                intent(inout) :: rhs_u
+    type(field_type),                intent(in)    :: wind_n
+    type(transport_controller_type), intent(inout) :: transport_controller
+    type(transport_metadata_type),   intent(inout) :: transport_metadata
 
     ! Internal variables
-    type(mesh_type), pointer  :: mesh => null()
-    integer(kind=i_def)       :: dir
-    type(field_type)          :: u_w3_n(3), u_w3_inc(3), u_w3_np1(3)
-    type(field_type)          :: u_w2_inc, u_w2b_inc, rhs_u_broken
-    type(field_type), pointer :: chi(:) => null()
-    type(field_type), pointer :: panel_id => null()
-    type(field_type), pointer :: rmultiplicity_w2 => null()
-    type(operator_type),        pointer :: mm_w2 => null()
-    type(operator_type),        pointer :: mm_w2b_inv => null()
-    type(operator_type),        pointer :: project_xdot_to_w2 => null()
-    type(operator_type),        pointer :: project_ydot_to_w2 => null()
-    type(operator_type),        pointer :: project_zdot_to_w2 => null()
-    type(function_space_type),  pointer :: w3_fs => null()
-    type(function_space_type),  pointer :: w2_fs => null()
-    type(function_space_type),  pointer :: w2b_fs => null()
+    type(mesh_type),           pointer  :: mesh
+    integer(kind=i_def)                 :: dir
+    type(field_type)                    :: u_w3_n(3), u_w3_inc(3), u_w3_np1(3)
+    type(field_type)                    :: u_w2_inc, u_w2b_inc, rhs_u_broken
+    type(field_type),           pointer :: chi(:)
+    type(field_type),           pointer :: panel_id
+    type(field_type),           pointer :: rmultiplicity_w2
+    type(operator_type),        pointer :: mm_w2
+    type(operator_type),        pointer :: mm_w2b_inv
+    type(operator_type),        pointer :: project_xdot_to_w2
+    type(operator_type),        pointer :: project_ydot_to_w2
+    type(operator_type),        pointer :: project_zdot_to_w2
+    type(function_space_type),  pointer :: w3_fs
+    type(function_space_type),  pointer :: w2_fs
+    type(function_space_type),  pointer :: w2b_fs
 
     if ( subroutine_timers ) call timer('transport.wind')
 
@@ -95,7 +99,8 @@ contains
     ! Semi-implicit formulation
     ! ------------------------------------------------------------------------ !
     if ( si_momentum_equation ) then
-      ! Transport terms are handled by the semi-implicit scheme the increment is zero
+      ! Transport terms are handled by the semi-implicit scheme
+      ! so the increment is zero
       call invoke( setval_c(rhs_u, 0.0_r_def) )
 
     else
@@ -141,7 +146,10 @@ contains
         ! -------------------------------------------------------------------- !
 
         do dir = 1,3
-          call transport_field(u_w3_np1(dir), u_w3_n(dir), model_dt, transport_metadata)
+          call transport_field(                                                &
+                  u_w3_np1(dir), u_w3_n(dir), transport_controller,            &
+                  transport_metadata                                           &
+          )
         end do
 
         ! -------------------------------------------------------------------- !
@@ -176,45 +184,53 @@ contains
                        setval_c(rhs_u_broken, 0.0_r_def),                      &
                        setval_c(rhs_u, 0.0_r_def),                             &
                        setval_c(u_w2_inc, 0.0_r_def),                          &
-                       dg_inc_matrix_vector_kernel_type(rhs_u_broken, u_w3_inc(1), project_xdot_to_w2), &
-                       dg_inc_matrix_vector_kernel_type(rhs_u_broken, u_w3_inc(2), project_ydot_to_w2), &
-                       dg_inc_matrix_vector_kernel_type(rhs_u_broken, u_w3_inc(3), project_zdot_to_w2), &
-                       dg_matrix_vector_kernel_type(u_w2b_inc, rhs_u_broken, mm_w2b_inv),               &
-                       average_w2b_to_w2_kernel_type(u_w2_inc, u_w2b_inc, rmultiplicity_w2),            &
+                       dg_inc_matrix_vector_kernel_type(rhs_u_broken,          &
+                                                        u_w3_inc(1),           &
+                                                        project_xdot_to_w2),   &
+                       dg_inc_matrix_vector_kernel_type(rhs_u_broken,          &
+                                                        u_w3_inc(2),           &
+                                                        project_ydot_to_w2),   &
+                       dg_inc_matrix_vector_kernel_type(rhs_u_broken,          &
+                                                        u_w3_inc(3),           &
+                                                        project_zdot_to_w2),   &
+                       dg_matrix_vector_kernel_type(u_w2b_inc, rhs_u_broken,   &
+                                                    mm_w2b_inv),               &
+                       average_w2b_to_w2_kernel_type(u_w2_inc, u_w2b_inc,      &
+                                                     rmultiplicity_w2),        &
                        matrix_vector_kernel_type(rhs_u, u_w2_inc, mm_w2),      &
                        enforce_bc_kernel_type(rhs_u) )
 
         else
           ! Assemble right-hand side for Galerkin projection into W2
-          call invoke( name="perform_galerkin_projection_for_wind_inc",         &
-                       X_minus_Y( u_w3_inc(1), u_w3_np1(1), u_w3_n(1) ),        &
-                       X_minus_Y( u_w3_inc(2), u_w3_np1(2), u_w3_n(2) ),        &
-                       X_minus_Y( u_w3_inc(3), u_w3_np1(3), u_w3_n(3) ),        &
-                       setval_c(rhs_u, 0.0_r_def),                              &
-                       matrix_vector_kernel_type(rhs_u, u_w3_inc(1), project_xdot_to_w2), &
-                       matrix_vector_kernel_type(rhs_u, u_w3_inc(2), project_ydot_to_w2), &
-                       matrix_vector_kernel_type(rhs_u, u_w3_inc(3), project_zdot_to_w2), &
+          call invoke( name="perform_galerkin_projection_for_wind_inc",        &
+                       X_minus_Y( u_w3_inc(1), u_w3_np1(1), u_w3_n(1) ),       &
+                       X_minus_Y( u_w3_inc(2), u_w3_np1(2), u_w3_n(2) ),       &
+                       X_minus_Y( u_w3_inc(3), u_w3_np1(3), u_w3_n(3) ),       &
+                       setval_c(rhs_u, 0.0_r_def),                             &
+                       matrix_vector_kernel_type(rhs_u, u_w3_inc(1),           &
+                                                 project_xdot_to_w2),          &
+                       matrix_vector_kernel_type(rhs_u, u_w3_inc(2),           &
+                                                 project_ydot_to_w2),          &
+                       matrix_vector_kernel_type(rhs_u, u_w3_inc(3),           &
+                                                 project_zdot_to_w2),          &
                        enforce_bc_kernel_type(rhs_u) )
         end if
 
         if ( subroutine_timers ) call timer('transport.wind_from_comps')
 
-        nullify( w3_fs, chi, panel_id, project_xdot_to_w2,      &
-                 project_ydot_to_w2, project_zdot_to_w2, mm_w2, &
-                 rmultiplicity_w2, mm_w2b_inv )
-
       ! ---------------------------------------------------------------------- !
       ! Default form of transport equation
       ! ---------------------------------------------------------------------- !
       case default
-        call log_event('Form of wind transport equation either not compatible ' // &
-                       'with wind transport or not implemented', LOG_LEVEL_ERROR)
+        call log_event(                                                        &
+                'Form of wind transport equation either not compatible ' //    &
+                'with wind transport or not implemented',                      &
+                LOG_LEVEL_ERROR                                                &
+        )
 
       end select
 
     end if ! si_momentum_equation
-
-    nullify ( mesh )
 
     if ( subroutine_timers ) call timer('transport.wind')
 
