@@ -17,18 +17,6 @@ class UpgradeError(Exception):
     __str__ = __repr__
 
 
-"""
-Copy this template and complete to add your macro
-class vnXX_txxx(MacroUpgrade):
-    # Upgrade macro for <TICKET> by <Author>
-    BEFORE_TAG = "vnX.X"
-    AFTER_TAG = "vnX.X_txxx"
-    def upgrade(self, config, meta_config=None):
-        # Add settings
-        return config, self.reports
-"""
-
-
 class vn20_t429(MacroUpgrade):
     """Upgrade macro for ticket #429 by Denis Sergeev."""
 
