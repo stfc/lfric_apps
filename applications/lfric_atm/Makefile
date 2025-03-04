@@ -26,9 +26,9 @@ export INTERNAL_DEPENDENCIES = $(CORE_ROOT_DIR)/infrastructure \
                                $(CORE_ROOT_DIR)/components/inventory \
                                $(CORE_ROOT_DIR)/components/lfric-xios \
                                $(APPS_ROOT_DIR)/science/shared \
-                               $(APPS_ROOT_DIR)/science/jules_interface \
-                               $(APPS_ROOT_DIR)/science/socrates_interface \
-                               $(APPS_ROOT_DIR)/science/um_physics_interface
+                               $(APPS_ROOT_DIR)/interfaces/jules_interface \
+                               $(APPS_ROOT_DIR)/interfaces/socrates_interface \
+                               $(APPS_ROOT_DIR)/interfaces/physics_schemes_interface
 
 META_VN             ?= HEAD
 export META_FILE_DIR = $(PROJECT_DIR)/rose-meta/lfric-$(PROJECT_NAME)/$(META_VN)
@@ -81,7 +81,7 @@ build: ALWAYS
 	$(call MESSAGE,Extracting coupled_interface component)
 	$(call MESSAGE,========================================)
 	$Q$(MAKE) $(QUIET_ARG) -f $(LFRIC_BUILD)/extract.mk \
-	          SOURCE_DIR=$(APPS_ROOT_DIR)/science/coupled_interface/source
+	          SOURCE_DIR=$(APPS_ROOT_DIR)/interfaces/coupled_interface/source
 	$(call MESSAGE,========================================)
 	$(call MESSAGE,Extracting Gungho dynamical core)
 	$(call MESSAGE,========================================)
@@ -106,7 +106,7 @@ build: ALWAYS
 	$(call MESSAGE,PSycloning coupled_interface component)
 	$(call MESSAGE,========================================)
 	$Q$(MAKE) $(QUIET_ARG) -f $(LFRIC_BUILD)/psyclone/psyclone.mk \
-	          SOURCE_DIR=$(APPS_ROOT_DIR)/science/coupled_interface/source
+	          SOURCE_DIR=$(APPS_ROOT_DIR)/interfaces/coupled_interface/source
 	$(call MESSAGE,========================================)
 	$(call MESSAGE,PSycloning Gungho dynamical core)
 	$(call MESSAGE,========================================)

@@ -11,7 +11,7 @@
                                                "linear_model",
                                                "gungho",
                                                "socrates_interface",
-                                               "um_physics_interface",
+                                               "physics_schemes_interface",
                                                "linear",
                                                "jedi_lfric_interface",
                                                "transport",

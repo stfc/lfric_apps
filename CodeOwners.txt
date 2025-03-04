@@ -49,5 +49,5 @@ jedi_lfric_interface        stevensandbach          davidsimonin            data
 jules_interface             ianboutle               richardgilham           atmospheric_processes_and_parametrizations
 linear                      christinejohnson        thomasbendall           dynamics_research
 socrates_interface          jamesmanners            stephanhavemann         radiation
-um_physics_interface        ianboutle               https://code.metoffice.gov.uk/trac/um/browser/main/trunk/CodeOwners.txt  simulation_systems_and_deployment
+physics_schemes_interface   ianboutle               https://code.metoffice.gov.uk/trac/um/browser/main/trunk/CodeOwners.txt  simulation_systems_and_deployment
 }}}

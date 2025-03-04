@@ -24,7 +24,7 @@ export INTERNAL_DEPENDENCIES = $(CORE_ROOT_DIR)/infrastructure \
                                $(CORE_ROOT_DIR)/components/driver \
                                $(CORE_ROOT_DIR)/components/science \
                                $(CORE_ROOT_DIR)/components/inventory \
-                               $(APPS_ROOT_DIR)/science/jedi_lfric_interface \
+                               $(APPS_ROOT_DIR)/interfaces/jedi_lfric_interface \
                                $(CORE_ROOT_DIR)/components/lfric-xios \
                                $(APPS_ROOT_DIR)/science/gungho \
                                $(APPS_ROOT_DIR)/science/linear \
@@ -166,7 +166,7 @@ unit-tests/%: export IMPORT_PARTS  = $(CORE_ROOT_DIR)/infrastructure \
                                      $(CORE_ROOT_DIR)/components/science \
                                      $(CORE_ROOT_DIR)/components/lfric-xios \
                                      $(CORE_ROOT_DIR)/components/inventory \
-                                     $(APPS_ROOT_DIR)/science/jedi_lfric_interface \
+                                     $(APPS_ROOT_DIR)/interfaces/jedi_lfric_interface \
                                      $(APPS_ROOT_DIR)/science/gungho \
                                      $(APPS_ROOT_DIR)/science/linear
 unit-tests/%: export META_FILE_DIR = rose-meta/jedi_lfric_tests/HEAD
@@ -188,7 +188,7 @@ integration-tests/%: export IMPORT_PARTS  = $(CORE_ROOT_DIR)/infrastructure \
                                             $(CORE_ROOT_DIR)/components/driver \
                                             $(CORE_ROOT_DIR)/components/inventory \
                                             $(CORE_ROOT_DIR)/components/lfric-xios \
-                                            $(APPS_ROOT_DIR)/science/jedi_lfric_interface \
+                                            $(APPS_ROOT_DIR)/interfaces/jedi_lfric_interface \
                                             $(APPS_ROOT_DIR)/science/gungho \
                                             $(APPS_ROOT_DIR)/science/linear \
                                             $(APPS_ROOT_DIR)/science/adjoint

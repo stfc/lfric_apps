@@ -18,14 +18,14 @@ VALID_APPS = [
     "applications/gungho_model",
     "applications/lfric_atm",
     "applications/linear_model",
+    "interfaces/coupled_interface",
+    "interfaces/jedi_lfric_interface",
+    "interfaces/socrates_interface",
+    "interfaces/physics_schemes_interface",
     "science/adjoint",
-    "science/coupled_interface",
     "science/gungho",
-    "science/jedi_lfric_interface",
     "science/linear",
     "science/physics_schemes",
-    "science/socrates_interface",
-    "science/um_physics_interface",
 ]
 
 if __name__ == "__main__":

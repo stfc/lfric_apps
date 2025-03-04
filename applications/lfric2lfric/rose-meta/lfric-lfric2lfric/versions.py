@@ -152,7 +152,7 @@ class vn20_t467(MacroUpgrade):
     AFTER_TAG = "vn2.0_t467"
 
     def upgrade(self, config, meta_config=None):
-        # Commands From: science/um_physics_interface/rose-meta/um-microphysics
+        # Commands From: interfaces/physics_schemes_interface/rose-meta/um-microphysics
         # Set l_mcr_precfrac (switch for prognostic precip fraction);
         # So-far this has been hardwired in the code to be true if using
         # the comorph convection scheme, and false if not.
@@ -198,7 +198,7 @@ class vn20_t541(MacroUpgrade):
     AFTER_TAG = "vn2.0_t541"
 
     def upgrade(self, config, meta_config=None):
-        # Commands From: science/socrates_interface/rose-meta/socrates-radiation
+        # Commands From: interfaces/socrates_interface/rose-meta/socrates-radiation
         self.add_setting(
             config, ["namelist:radiation", "cloud_entrapment"], "'zero'"
         )
@@ -212,7 +212,7 @@ class vn20_t481(MacroUpgrade):
     AFTER_TAG = "vn2.0_t481"
 
     def upgrade(self, config, meta_config=None):
-        # Commands From: science/um_physics_interface/rose-meta/um-cloud
+        # Commands From: interfaces/physics_schemes_interface/rose-meta/um-cloud
         # All altered settings are in the cloud namelist
         nml = "namelist:cloud"
         # Logical ez_subcrit_only replaced by a 3-way integer switch:
@@ -273,16 +273,16 @@ class vn20_t334(MacroUpgrade):
     AFTER_TAG = "vn2.0_t334"
 
     def upgrade(self, config, meta_config=None):
-        # Commands From: science/um_physics_interface/rose-meta/um-microphysics
+        # Commands From: interfaces/physics_schemes_interface/rose-meta/um-microphysics
         self.add_setting(config, ["namelist:microphysics", "mp_dz_scal"], "2.0")
-        # Commands From: science/um_physics_interface/rose-meta/um-convection
+        # Commands From: interfaces/physics_schemes_interface/rose-meta/um-convection
         self.add_setting(config, ["namelist:convection", "efrac"], "1.0")
         self.add_setting(
             config, ["namelist:convection", "orig_mdet_fac"], "1.0"
         )
         self.add_setting(config, ["namelist:convection", "prog_ent_min"], "0.5")
         self.add_setting(config, ["namelist:convection", "qlmin"], "4.0e-4")
-        # Commands From: science/um_physics_interface/rose-meta/um-cloud
+        # Commands From: interfaces/physics_schemes_interface/rose-meta/um-cloud
         cvscheme = self.get_setting_value(
             config, ["namelist:convection", "cv_scheme"]
         )
@@ -306,9 +306,9 @@ class vn20_t334(MacroUpgrade):
             self.add_setting(
                 config, ["namelist:cloud", "fsd_nonconv_const"], "1.14"
             )
-        # Commands From: science/um_physics_interface/rose-meta/um-boundary_layer
+        # Commands From: interfaces/physics_schemes_interface/rose-meta/um-boundary_layer
         self.add_setting(config, ["namelist:blayer", "dec_thres_cu"], "0.05")
-        # Commands From: science/um_physics_interface/rose-meta/um-aerosol
+        # Commands From: interfaces/physics_schemes_interface/rose-meta/um-aerosol
         self.add_setting(config, ["namelist:aerosol", "horiz_d"], "2.25")
         self.add_setting(config, ["namelist:aerosol", "us_am"], "1.45")
         return config, self.reports
