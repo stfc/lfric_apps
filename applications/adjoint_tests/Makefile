@@ -132,7 +132,7 @@ build: ALWAYS
 	$(call MESSAGE,========================================)
 	$(call MESSAGE,PSycloning $(PROJECT_NAME))
 	$(call MESSAGE,========================================)
-	$Q$(MAKE) $(QUIET_ARG) -f $(LFRIC_BUILD)/psyclone/psyclone.mk \
+	$Q$(MAKE) $(QUIET_ARG) -f $(LFRIC_BUILD)/psyclone/psyclone_psykal.mk \
 	          SOURCE_DIR=source \
 	          OPTIMISATION_PATH=$(OPTIMISATION_PATH) \
 	          PSYCLONE_CONFIG_FILE=$(ADJT_CONFIG_FILE)
