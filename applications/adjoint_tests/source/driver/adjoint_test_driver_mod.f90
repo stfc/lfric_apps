@@ -96,6 +96,7 @@ contains
     use atlt_moist_dyn_factors_alg_mod,             only : atlt_moist_dyn_factors_alg
 
     ! ./solver
+    use adjt_pressure_precon_alg_mod,               only : adjt_pressure_precon_alg
     use adjt_mixed_operator_alg_mod,                only : adjt_mixed_operator_alg
     use adjt_mixed_schur_preconditioner_alg_mod,    only : adjt_mixed_schur_preconditioner_alg
     use adjt_mixed_solver_alg_mod,                  only : adjt_mixed_solver_alg
@@ -195,6 +196,7 @@ contains
     call reset_mass_matrices( mesh, m3_inv_copy, mt_lumped_inv_copy )
 
     ! ./solver
+    call adjt_pressure_precon_alg( modeldb,  mesh, modeldb%clock )
     call adjt_mixed_operator_alg( mesh, modeldb%clock )
     call adjt_mixed_schur_preconditioner_alg( modeldb,  mesh, modeldb%clock )
     call adjt_mixed_solver_alg( modeldb, mesh, modeldb%clock )

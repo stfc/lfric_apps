@@ -22,6 +22,7 @@ module adj_semi_implicit_solver_alg_mod
   use sci_geometric_constants_mod,            only: get_face_selector_ew, get_face_selector_ns
   use adj_mixed_operator_alg_mod,             only: adj_mixed_operator_type
   use adj_mixed_schur_preconditioner_alg_mod, only: adj_mixed_schur_preconditioner_type
+  use adj_pressure_precon_alg_mod,            only: adj_pressure_preconditioner_type
   use pressure_operator_alg_mod,              only: pressure_operator_type
   use adj_pressure_operator_alg_mod,          only: adj_pressure_operator_type
   use sci_null_preconditioner_alg_mod,        only: null_preconditioner_type
@@ -36,7 +37,6 @@ module adj_semi_implicit_solver_alg_mod
   use copy_field_alg_mod,                     only: copy_field
   use function_space_collection_mod,          only: function_space_collection
   use fs_continuity_mod,                      only: W2, Wtheta, W2v, W2h
-  use semi_implicit_solver_alg_mod,           only: create_pressure_preconditioner
   use mixed_solver_config_mod,                only: si_maximum_iterations,                         &
                                                     si_tolerance,                                  &
                                                     si_method,                                     &
@@ -73,6 +73,7 @@ module adj_semi_implicit_solver_alg_mod
     procedure, public  :: finalise
   end type adj_semi_implicit_solver_type
 
+  public  :: create_adj_pressure_preconditioner
   public  :: create_adj_pressure_solver
   public  :: create_adj_mixed_preconditioner
   public  :: create_adj_mixed_solver
@@ -80,6 +81,43 @@ module adj_semi_implicit_solver_alg_mod
   private :: deconstruct_solver_state
 
 contains
+
+  !> @brief Create adjoint operator and preconditioner for (Helmholtz) pressure problem
+  !> @details Called by init method of this module, but also by
+  !!          adjt_mixed_schur_preconditioner_alg_mod and adjt_mixed_solver_alg_mod
+  !> @param[out] pressure_operator_out       Output (Helmholtz) pressure operator
+  !> @param[out] pressure_preconditioner_out Output (Helmholtz) pressure preconditioner
+  subroutine create_adj_pressure_preconditioner( adj_pressure_operator_out, adj_pressure_preconditioner_out )
+
+    use helmholtz_solver_config_mod,   only: helmholtz_preconditioner => preconditioner, &
+                                             preconditioner_none,                        &
+                                             preconditioner_tridiagonal
+
+    implicit none
+
+    ! Output adjoint operator and preconditioner for (Helmholtz) pressure problem
+    type(adj_pressure_operator_type),                 intent(out) :: adj_pressure_operator_out
+    class(abstract_preconditioner_type), allocatable, intent(out) :: adj_pressure_preconditioner_out
+
+    adj_pressure_operator_out = adj_pressure_operator_type(level=1_i_def)
+
+    call log_event( "adj_semi_implicit_solver_type%create_adj_pressure_preconditioner: starting", LOG_LEVEL_INFO )
+
+    ! Allocate pressure preconditioner of correct type
+    select case(helmholtz_preconditioner)
+      case(PRECONDITIONER_NONE)
+        allocate( adj_pressure_preconditioner_out, &
+                  source = null_preconditioner_type() )
+      case(PRECONDITIONER_TRIDIAGONAL)
+        allocate( adj_pressure_preconditioner_out, &
+                  source = adj_pressure_preconditioner_type(level=1_i_def) )
+      case default
+        call log_event( "Invalid pressure preconditioner specified for adjoint", LOG_LEVEL_ERROR )
+    end select
+
+    call log_event( "adj_semi_implicit_solver_type%create_adj_pressure_preconditioner: done", LOG_LEVEL_INFO )
+
+  end subroutine create_adj_pressure_preconditioner
 
   !> @brief Create adjoint iterative solver for (Helmholtz) pressure problem
   !> @details Called by init method of this module, but also by
@@ -204,11 +242,8 @@ contains
     class(adj_semi_implicit_solver_type),     intent(inout) :: self
     type(field_type), dimension(bundle_size), intent(in)    :: state
 
-    ! Local pressure operator for use in constructing adj_pressure_preconditioner
-    type(pressure_operator_type) :: pressure_operator
-
     self%adj_pressure_operator = adj_pressure_operator_type(level=1_i_def)
-    call create_pressure_preconditioner( state, pressure_operator, self%adj_pressure_preconditioner )
+    call create_adj_pressure_preconditioner( self%adj_pressure_operator, self%adj_pressure_preconditioner )
     call create_adj_pressure_solver( self%adj_pressure_operator, self%adj_pressure_preconditioner, self%adj_pressure_solver )
     call create_adj_mixed_preconditioner( state, self%adj_pressure_solver, self%adj_mixed_preconditioner )
     call create_adj_mixed_solver( self%adj_mixed_preconditioner, self%adj_mixed_operator, self%adj_mixed_solver )

@@ -52,8 +52,9 @@ module adjt_mixed_schur_preconditioner_alg_mod
   use semi_implicit_solver_alg_mod,     only: create_pressure_preconditioner, &
                                               create_pressure_solver,         &
                                               create_mixed_preconditioner
-  use adj_semi_implicit_solver_alg_mod, only: create_adj_pressure_solver,      &
-                                              create_adj_mixed_preconditioner, &
+  use adj_semi_implicit_solver_alg_mod, only: create_adj_pressure_preconditioner, &
+                                              create_adj_pressure_solver,         &
+                                              create_adj_mixed_preconditioner,    &
                                               construct_solver_state
 
   implicit none
@@ -111,6 +112,7 @@ contains
     class(abstract_iterative_solver_type), allocatable :: pressure_solver
     class(abstract_preconditioner_type),   allocatable :: mixed_preconditioner
     type(adj_pressure_operator_type)                   :: adj_pressure_operator
+    class(abstract_preconditioner_type),   allocatable :: adj_pressure_preconditioner
     class(abstract_iterative_solver_type), allocatable :: adj_pressure_solver
     class(abstract_preconditioner_type),   allocatable :: adj_mixed_preconditioner
 
@@ -217,7 +219,8 @@ contains
     call create_mixed_preconditioner( rhs, pressure_solver, mixed_preconditioner )
 
     adj_pressure_operator = adj_pressure_operator_type(level=1_i_def)
-    call create_adj_pressure_solver( adj_pressure_operator, pressure_preconditioner, adj_pressure_solver )
+    call create_adj_pressure_preconditioner( adj_pressure_operator, adj_pressure_preconditioner )
+    call create_adj_pressure_solver( adj_pressure_operator, adj_pressure_preconditioner, adj_pressure_solver )
     call create_adj_mixed_preconditioner( rhs, adj_pressure_solver, adj_mixed_preconditioner )
 
     call construct_solver_state( vector_x, rhs_rsol, import_fields=.true. )
@@ -299,7 +302,8 @@ contains
       call log_event( log_scratch_space, LOG_LEVEL_ERROR )
     end if
 
-    deallocate( pressure_preconditioner, pressure_solver, mixed_preconditioner, adj_pressure_solver, adj_mixed_preconditioner )
+    deallocate( pressure_preconditioner, pressure_solver, mixed_preconditioner, &
+                adj_pressure_preconditioner, adj_pressure_solver, adj_mixed_preconditioner )
 
     if (subroutine_timers) call timer('adjt_mixed_schur_preconditioner_alg')
 
