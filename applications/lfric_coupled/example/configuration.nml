@@ -234,14 +234,12 @@ l_soil_sat_down=.true.,
 l_vg_soil=.true.
 /
 &jules_surface
-check_soilm_negatives=.true.,
 cor_mo_iter='lim_oblen',
 fd_stability_dep='none',
 formdrag='eff_z0',
 l_anthrop_heat_src=.false.,
 l_urban2t=.false.,
 l_vary_z0m_soil=.false.
-lake_water_conservation=.true.,
 srf_ex_cnv_gust=.true.,
 /
 &jules_surface_types
@@ -358,6 +356,8 @@ preconditioner='diagonal',
 tolerance=1.0e-12,
 /
 &surface
+check_soilm_negatives=.true.,
+lake_water_conservation=.true.,
 surf_tile_fracs=9*0.0,1.0,0.0,
 /
 &time

@@ -30,10 +30,10 @@ module jules_exp_kernel_mod
   use jules_radiation_config_mod,  only : l_albedo_obs
   use jules_sea_seaice_config_mod, only : iseasurfalg,                         &
                                      iseasurfalg_specified_roughness,          &
-                                     buddy_sea, buddy_sea_on
-  use surface_config_mod,     only : z0m_specified_nml => z0m_specified, &
-                                     z0h_specified_nml => z0h_specified, &
-                                     emis_method_soil, emis_method_soil_fixed
+                                     buddy_sea, buddy_sea_on,                  &
+                                     z0m_specified_nml => z0m_specified,       &
+                                     z0h_specified_nml => z0h_specified
+  use surface_config_mod,     only : emis_method_soil, emis_method_soil_fixed
   use water_constants_mod,    only : tfs
 
   implicit none

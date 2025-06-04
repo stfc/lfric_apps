@@ -22,7 +22,7 @@ module update_ancils_alg_mod
   use linked_list_mod,             only: linked_list_type, &
                                          linked_list_item_type
   use sci_geometric_constants_mod, only: get_latitude
-  use surface_config_mod,          only: amip_ice_thick
+  use jules_sea_seaice_config_mod, only: amip_ice_thick
   use derived_config_mod,          only: l_esm_couple
 
   implicit none

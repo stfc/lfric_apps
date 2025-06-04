@@ -54,8 +54,8 @@ module init_ancils_mod
                                              murk_prognostic
   use socrates_init_mod,              only : n_sw_band, n_lw_band
   use jules_surface_config_mod,       only : l_vary_z0m_soil, l_urban2t
+  use jules_sea_seaice_config_mod,    only : amip_ice_thick
   use jules_radiation_config_mod,     only : l_sea_alb_var_chl, l_albedo_obs
-  use surface_config_mod,             only : amip_ice_thick
   use radiation_config_mod,           only : topography, topography_slope, &
                                              topography_horizon, &
                                              n_horiz_ang, n_horiz_layer

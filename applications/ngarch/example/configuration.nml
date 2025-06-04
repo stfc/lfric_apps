@@ -331,6 +331,7 @@ swdn_frac_albsoil=0.5,
 /
 &jules_sea_seaice
 alpham=0.72,
+amip_ice_thick=.false.,
 buddy_sea='Off',
 cdn_hw_sea=0.002,
 cdn_max_sea=0.003,
@@ -481,7 +482,6 @@ tolerance=1.0e-6,
 vertical_order=1,
 /
 &surface
-amip_ice_thick=.false.,
 emis_method_sea='fixed',
 emis_method_soil='fixed',
 /

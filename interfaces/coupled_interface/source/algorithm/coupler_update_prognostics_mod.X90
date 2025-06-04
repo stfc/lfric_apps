@@ -31,7 +31,7 @@ module coupler_update_prognostics_mod
   use jules_physics_init_mod,        only: min_sea_ice_frac
   use process_ssi_kernel_mod,        only: process_ssi_kernel_type
   use masked_process_ssi_kernel_mod, only: masked_process_ssi_kernel_type
-  use surface_config_mod,            only: amip_ice_thick
+  use jules_sea_seaice_config_mod,   only: amip_ice_thick
   use derived_config_mod,            only: l_esm_couple
 #endif
   use sci_field_minmax_alg_mod,      only: log_field_minmax
