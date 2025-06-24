@@ -258,7 +258,6 @@ contains
 
     type( field_collection_type ), pointer :: prognostic_fields
     type( field_collection_type ), pointer :: moisture_fields
-
     type( field_type), pointer :: u
     type( field_type), pointer :: rho
     type( field_type), pointer :: theta
@@ -538,7 +537,7 @@ contains
   !> @param[in,out] prognostic_fields      Prognostic field collection
   !> @param[in,out] moisture_fields        Moisture field collection
   !> @param[in,out] derived_fields         Group of derived fields
-  !> @param[in,out] radition_fields        Fields for radiation scheme
+  !> @param[in,out] radiation_fields       Fields for radiation scheme
   !> @param[in,out] microphysics_fields    Fields for mphys scheme
   !> @param[in,out] electric_fields        Fields for electric (lighting) scheme
   !> @param[in]     orography_fields       Fields for orog drag scheme

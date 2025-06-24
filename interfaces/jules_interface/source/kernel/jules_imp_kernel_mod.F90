@@ -421,6 +421,8 @@ contains
     use progs_cbl_vars_mod, only: progs_cbl_vars_type ! CABLE requires extra progs
     use work_vars_mod_cbl,  only: work_vars_type      ! and some kept thru timestep
 
+    use timestepping_config_mod,       only : method, method_jules
+
     implicit none
 
     ! Arguments
@@ -627,9 +629,11 @@ contains
     type(progs_cbl_vars_type) :: progs_cbl_vars
     type(work_vars_type)      :: work_cbl
 
+
     !-----------------------------------------------------------------------
     ! Initialisation of JULES data and pointer types
     !-----------------------------------------------------------------------
+
     ! Land tile fractions
     flandg = 0.0_r_um
     land_field = 0
@@ -1143,17 +1147,36 @@ contains
     !-----------------------------------------------------------------------
     ! Code from ni_imp_ctl
     !-----------------------------------------------------------------------
-    do i = 1, seg_len
-      p1=bl_type_ind(map_bl(1,i)+0)*pstb+(1.0_r_def-bl_type_ind(map_bl(1,i)+0))*puns
-      p2=bl_type_ind(map_bl(1,i)+1)*pstb+(1.0_r_def-bl_type_ind(map_bl(1,i)+1))*puns
-      pnonl=max(p1,p2)
-      i1(i) = (1.0_r_def+1.0_r_def/sqrt2)*(1.0_r_def+pnonl)
-      e1(i) = (1.0_r_def+1.0_r_def/sqrt2)*( pnonl + (1.0_r_def/sqrt2) + &
-           sqrt(pnonl*(sqrt2-1.0_r_def)+0.5_r_def) )
-      e2(i) = (1.0_r_def+1.0_r_def/sqrt2)*( pnonl+(1.0_r_def/sqrt2) - &
-           sqrt(pnonl*(sqrt2-1.0_r_def)+0.5_r_def))
-      gamma1(i,1) = i1(i)
-    end do
+
+    r_gamma=alpha_cd(1)
+    if (flux_bc_opt > interactive_fluxes) then
+      ! explicit scalar surface fluxes means surface evaporation, snow melt,
+      ! etc will all be consistent with specified surface fluxes
+      r_gamma=0.0_r_def
+    end if ! flux_bc_opt > interactive_fluxes
+
+    if (method == method_jules) then
+      ! Set weights so that coupling is fully explicit,
+      ! i.e. gamma2 will be 0 on the 1st call and 1 on the 2nd call
+      do i = 1, seg_len
+        i1(i) = 1.0_r_def
+        e1(i) = 1.0_r_def
+        e2(i) = 0.0_r_def
+        gamma1(i,1) = r_gamma
+      end do
+    else
+      do i = 1, seg_len
+        p1=bl_type_ind(map_bl(1,i)+0)*pstb+(1.0_r_def-bl_type_ind(map_bl(1,i)+0))*puns
+        p2=bl_type_ind(map_bl(1,i)+1)*pstb+(1.0_r_def-bl_type_ind(map_bl(1,i)+1))*puns
+        pnonl=max(p1,p2)
+        i1(i) = (1.0_r_def+1.0_r_def/sqrt2)*(1.0_r_def+pnonl)
+        e1(i) = (1.0_r_def+1.0_r_def/sqrt2)*( pnonl + (1.0_r_def/sqrt2) + &
+             sqrt(pnonl*(sqrt2-1.0_r_def)+0.5_r_def) )
+        e2(i) = (1.0_r_def+1.0_r_def/sqrt2)*( pnonl+(1.0_r_def/sqrt2) - &
+             sqrt(pnonl*(sqrt2-1.0_r_def)+0.5_r_def))
+        gamma1(i,1) = i1(i)
+      end do
+    end if
 
     if (loop == 1) then
       do i = 1, seg_len
@@ -1169,13 +1192,6 @@ contains
 
     ! Water tracers are only updated on final loop
     l_wtrac_bl = (l_wtrac .AND. outer == outer_iterations)
-
-    r_gamma=alpha_cd(1)
-    if (flux_bc_opt > interactive_fluxes) then
-      ! explicit scalar surface fluxes means surface evaporation, snow melt,
-      ! etc will all be consistent with specified surface fluxes
-      r_gamma=0.0_r_def
-    end if ! flux_bc_opt > interactive_fluxes
 
     call surf_couple_implicit(                                               &
          !Important switch
@@ -1364,7 +1380,6 @@ contains
             do m = 1, ainfo%surft_pts(n)
               l = ainfo%surft_index(m,n)
               i = ainfo%land_index(l)
-
               sf_diag%q1p5m_surft(l,n) = sf_diag%q1p5m_surft(l,n)/             &
                   (1.0_r_def + sf_diag%q1p5m_surft(l,n)+qcf_latest(i,1) )
             end do

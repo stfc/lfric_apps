@@ -11,6 +11,7 @@
                                                "mesh",
                                                "gravity_wave",
                                                "jedi_lfric_tests",
+                                               "jules",
                                                "shallow_water",
                                                "linear_model",
                                                "lfricinputs",

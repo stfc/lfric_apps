@@ -110,6 +110,7 @@ module gungho_model_mod
   use stochastic_physics_config_mod, only : use_spt, &
                                             use_skeb, &
                                             use_random_parameters
+  use jules_timestep_alg_mod,      only : jules_timestep_type
 #endif
 
   implicit none
@@ -885,7 +886,8 @@ contains
     use timestepping_config_mod, only: method,                 &
                                        method_semi_implicit,   &
                                        method_rk,              &
-                                       method_no_timestepping
+                                       method_no_timestepping, &
+                                       method_jules
 
     use io_config_mod,          only: write_conservation_diag, &
                                       write_minmax_tseries
@@ -937,7 +939,6 @@ contains
         ! Add to the model database
         call modeldb%values%add_key_value('timestep_method', &
                         timestep_method)
-
         ! Output initial conditions
         if ( write_conservation_diag ) then
          call conservation_algorithm( rho,              &
@@ -979,6 +980,14 @@ contains
                     '(A, A)' ) 'CAUTION: Running with no timestepping. ' // &
                     ' Prognostic fields not evolved'
         call log_event( log_scratch_space, LOG_LEVEL_WARNING )
+#ifdef UM_PHYSICS
+      case( method_jules )  ! jules
+        ! Initialise the jules timestep method
+        allocate( timestep_method, source=jules_timestep_type(modeldb) )
+        ! Add to the model database
+        call modeldb%values%add_key_value('timestep_method', &
+                      timestep_method)
+#endif
       case default
         call log_event("Gungho: Incorrect time stepping option chosen, "// &
                         "stopping program! ",LOG_LEVEL_ERROR)
