@@ -65,7 +65,7 @@
         task
         ]) %}
 
-    {% if "macro_chains_checker" in task %}
+    {% if "macro_chains_checker" in task or "validate_rose_meta" in task %}
         {# The macro chains checker relies on the export of SimSys_Scripts #}
         {% do graph_sections.append([
             "export_simsys_scripts",
