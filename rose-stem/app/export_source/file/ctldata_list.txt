@@ -13,6 +13,8 @@
 # mode=symlink+
 # source=$SOURCE_ROOT/ctldata/<name>
 
+#FastJX spectral files
+fcm:um_aux.xm/trunk/ctldata/UKCA/fastj@vn1.24 fastj
 
 # lut files
 fcm:um_aux.xm/trunk/ctldata/UKCA/radaer/ga7_1@vn1.24 lut

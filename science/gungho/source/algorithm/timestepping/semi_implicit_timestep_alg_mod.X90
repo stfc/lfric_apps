@@ -1129,7 +1129,7 @@ contains
                               microphysics_fields, turbulence_fields,    &
                               convection_fields, cloud_fields,           &
                               surface_fields, soil_fields,               &
-                              self%state, mr, model_clock%get_step() )
+                              self%state, mr, model_clock )
     end if
 #endif
 
