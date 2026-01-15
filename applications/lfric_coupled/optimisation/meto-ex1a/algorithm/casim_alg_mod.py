@@ -13,8 +13,9 @@ the initialisation built-ins generically.
 
 from psyclone_tools import (redundant_computation_setval, colour_loops,
                             view_transformed_schedule)
-from psyclone.transformations import (Dynamo0p3OMPLoopTrans,
-                                      OMPParallelTrans)
+
+from psyclone.psyir.transformations import OMPParallelTrans
+from psyclone.transformations import Dynamo0p3OMPLoopTrans
 
 
 def trans(psy):

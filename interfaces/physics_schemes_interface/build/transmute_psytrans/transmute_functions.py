@@ -32,10 +32,10 @@ from psyclone.psyir.symbols import (
     UnsupportedFortranType,
     CHARACTER_TYPE,
 )
+from psyclone.psyir.transformations import OMPParallelTrans
 from psyclone.transformations import (
     OMPLoopTrans,
     TransformationError,
-    OMPParallelTrans,
     OMPParallelLoopTrans,
 )
 
