@@ -30,7 +30,7 @@ lfric_apps:
     ref:
 
 lfric_core:
-    source: git@github.com:stfc/lfric_core.git
+    source: https://github.com/stfc/lfric_core.git
     ref: 5295952ee8a6df2c481dc36f57a926b576bc72ff
 
 moci:
