@@ -25,7 +25,7 @@ Future work:
     PSyclone as of version 3.1 is not capable of fully
     determining which variables need to be set PRIVATE, since many of these
     are arrays (and using `privatise_arrays` has not been found to work). The
-    suggested fix from STFC is to use `force_private`.
+    suggested fix from STFC is to use the `force_private` option.
     The workaround is to set anything beginning in `seg_` to PRIVATE, since
     these variables are the ones used in the chunking and therefore need to
     be private to each thread.
