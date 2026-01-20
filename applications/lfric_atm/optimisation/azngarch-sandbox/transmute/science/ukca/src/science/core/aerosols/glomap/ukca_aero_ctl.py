@@ -72,7 +72,7 @@ def trans(psyir):
         # some non-PURE subroutines called within this loop
         "force": True,
         # several WRITE statements used for diagnostics
-        "node-type-check": False,
+        "node_type_check": False,
     }
     # For the coarse-grained approach, we have *one* loop we want to work on
     # - the loop over segments. This gives almost complete coverage for GLOMAP,
