@@ -15,7 +15,7 @@ from psyclone_tools import (redundant_computation_setval, colour_loops,
                             view_transformed_schedule)
 
 from psyclone.psyir.transformations import OMPParallelTrans
-from psyclone.transformations import Dynamo0p3OMPLoopTrans
+from psyclone.transformations import LFRicOMPLoopTrans
 
 
 def trans(psy):
@@ -35,7 +35,7 @@ def trans(psy):
     # such as this where we want to avoid the subroutine
     # casim_kernel_type or as psyclone knows is in it's representaion
     # invoke_1_casim_kernel_type
-    otrans = Dynamo0p3OMPLoopTrans()
+    otrans = LFRicOMPLoopTrans()
     oregtrans = OMPParallelTrans()
     # Loop over all the Invokes in the PSy object
     for invoke in psy.invokes.invoke_list:
