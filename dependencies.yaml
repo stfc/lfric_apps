@@ -18,8 +18,8 @@
 # local clone. These can be filled to set a different source if desired.
 
 casim:
-    source: https://github.com/MetOffice/casim.git
-    ref: 2025.12.1
+    source: git@github.com:MetOffice/casim.git
+    ref: 2026.03.2
 
 jules:
     source: /archive/psyclone-tests/lfric-repos/jules/
@@ -31,24 +31,24 @@ lfric_apps:
 
 lfric_core:
     source: https://github.com/stfc/lfric_core.git
-    ref: f4fd717934f2de26bea4245ef29d09124dd11671
+    ref: 1d2e0a616e93ee94d03a8da04e1140504887dab1
 
 moci:
-    source: https://github.com/MetOffice/moci.git
-    ref: 2025.12.1
+    source: git@github.com:MetOffice/moci.git
+    ref: 2026.03.2
 
 SimSys_Scripts:
-    source: https://github.com/MetOffice/SimSys_Scripts.git
-    ref: 2025.12.1
+    source: git@github.com:MetOffice/SimSys_Scripts.git
+    ref: 2026.03.2
 
 socrates:
-    source: https://github.com/MetOffice/socrates.git
-    ref: 2025.12.1
+    source: git@github.com:MetOffice/socrates.git
+    ref: 2026.03.2
 
 socrates-spectral:
-    source: https://github.com/MetOffice/socrates-spectral.git
-    ref: 2025.12.1
+    source: git@github.com:MetOffice/socrates-spectral.git
+    ref: 2026.03.2
 
 ukca:
-    source: https://github.com/MetOffice/ukca.git
-    ref: 2025.12.1
+    source: git@github.com:MetOffice/ukca.git
+    ref: 2026.03.2
