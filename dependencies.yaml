@@ -21,8 +21,8 @@ casim:
     ref: 2026.03.2
 
 jules:
-    source: /archive/psyclone-tests/lfric-repos/jules/
-    ref: 2025.12.1
+    source: /archive/psyclone-tests/lfric-repos/jules-2026.03.2
+    ref: 2026.03.2
 
 lfric_apps:
     source:
