@@ -19,10 +19,10 @@ from psyclone.domain.lfric import LFRicConstants
 from psyclone.psyir.nodes import Directive, Loop, Routine
 from psyclone.psyir.transformations import (
     ACCKernelsTrans, TransformationError, OMPTargetTrans,
-    OMPDeclareTargetTrans)
+    OMPDeclareTargetTrans, OMPParallelTrans)
 from psyclone.transformations import (
     Dynamo0p3ColourTrans, Dynamo0p3OMPLoopTrans,
-    Dynamo0p3RedundantComputationTrans, OMPParallelTrans,
+    Dynamo0p3RedundantComputationTrans,
     ACCParallelTrans, ACCLoopTrans, ACCRoutineTrans,
     OMPLoopTrans)
 from psyclone.domain.common.transformations import KernelModuleInlineTrans

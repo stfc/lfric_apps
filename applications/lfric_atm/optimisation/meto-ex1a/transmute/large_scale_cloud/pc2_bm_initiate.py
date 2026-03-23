@@ -20,7 +20,6 @@ from psyclone.psyir.nodes import (Loop, CodeBlock)
 from transmute_psytrans.transmute_functions import (
     set_pure_subroutines,
     get_outer_loops,
-    mark_explicit_privates,
     get_compiler,
     first_priv_red_init,
     match_lhs_assignments,
@@ -92,10 +91,6 @@ def trans(psyir):
     except (TransformationError, IndexError) as err:
         logging.warning("Parallelisation of the 1st region failed: %s", err)
 
-    # Declare private symbols for the last loop nest explicitly,
-    # PSyclone misses one
-    mark_explicit_privates(outer_loops[2], private_variables)
-
     # Parallelise the second region and insert compiler directives
     # Add redundant variable initialisation to work around a known
     # PSyclone issue when using CCE
@@ -129,7 +124,8 @@ def trans(psyir):
             options = {}
             if len(ignore_deps_vars) > 0:
                 options["ignore_dependencies_for"] = ignore_deps_vars
-            OMP_DO_LOOP_TRANS_STATIC.apply(loop, options)
+            OMP_DO_LOOP_TRANS_STATIC.apply(loop, options=options,
+                                           force_private=private_variables)
 
         for loop in outer_loops[2].walk(Loop)[8:13:2]:
             # Check if any eligible variables appear on the LHS of
@@ -139,7 +135,8 @@ def trans(psyir):
             if len(ignore_deps_vars) > 0:
                 options["ignore_dependencies_for"] = ignore_deps_vars
 
-            OMP_DO_LOOP_TRANS_STATIC.apply(loop, options)
+            OMP_DO_LOOP_TRANS_STATIC.apply(loop, options=options,
+                                           force_private=private_variables)
 
     except (TransformationError, IndexError) as err:
         logging.warning("Parallelisation of the 2nd region failed: %s", err)
