@@ -30,7 +30,7 @@ lfric_apps:
 
 lfric_core:
     source: https://github.com/stfc/lfric_core.git
-    ref: 384a2039b9a522dd3b56d9644bc69b463a68db46
+    ref: 0c61331a96d0c57ba15723ab190e8500e2ffd1c5
 
 moci:
     source: https://github.com/MetOffice/moci.git
