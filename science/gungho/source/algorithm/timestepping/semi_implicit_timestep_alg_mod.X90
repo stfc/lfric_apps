@@ -681,6 +681,8 @@ contains
         call aerosol_nml%get_value( 'murk_lbc', murk_lbc )
       end if
     end if
+    ! Print statements makes NVHPC work?
+    print *, lbc_option, use_physics
     if (lbc_option == lbc_option_um2lfric_file .or. &
         (use_physics .and. cloud == cloud_um)) then
       microphysics_nml   => modeldb%configuration%get_namelist('microphysics')
