@@ -16,14 +16,13 @@
 # The entry for this repository will have blank values for both source and ref
 # by default, which will cause the test suite to use the source code from the
 # local clone. These can be filled to set a different source if desired.
-
 casim:
     source: https://github.com/MetOffice/casim.git
-    ref: 2025.12.1
+    ref: 2026.03.2
 
 jules:
-    source: /archive/psyclone-tests/lfric-repos/jules/
-    ref: 2025.12.1
+    source: /archive/psyclone-tests/lfric-repos/jules-2026.03.2
+    ref: 2026.03.2
 
 lfric_apps:
     source:
@@ -31,24 +30,25 @@ lfric_apps:
 
 lfric_core:
     source: https://github.com/stfc/lfric_core.git
-    ref: f4fd717934f2de26bea4245ef29d09124dd11671
+    ref: 0c61331a96d0c57ba15723ab190e8500e2ffd1c5
 
 moci:
     source: https://github.com/MetOffice/moci.git
-    ref: 2025.12.1
+    ref: 2026.03.2
 
 SimSys_Scripts:
     source: https://github.com/MetOffice/SimSys_Scripts.git
-    ref: 2025.12.1
+    ref: 2026.03.2
 
 socrates:
     source: https://github.com/MetOffice/socrates.git
-    ref: 2025.12.1
+    ref: 2026.03.2
 
 socrates-spectral:
     source: https://github.com/MetOffice/socrates-spectral.git
-    ref: 2025.12.1
+    ref: 2026.03.2
 
 ukca:
     source: https://github.com/MetOffice/ukca.git
-    ref: 2025.12.1
+    ref: 2026.03.2
+
