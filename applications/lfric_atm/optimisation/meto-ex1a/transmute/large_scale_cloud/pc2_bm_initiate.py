@@ -16,7 +16,7 @@ the original code are re-inserted for performance and consistency of output.
 
 import logging
 from psyclone.transformations import TransformationError
-from psyclone.psyir.nodes import (Loop, CodeBlock)
+from psyclone.psyir.nodes import (Loop, UnknownDirective)
 from transmute_psytrans.transmute_functions import (
     set_pure_subroutines,
     get_outer_loops,
@@ -50,22 +50,6 @@ false_dep_vars = [
     "qsi_lay",
     "qsl_lay",
 ]
-
-
-class CompilerDirective():
-    """
-    Custom compiler directive class to avoid an issue
-    with fparser.two.Fortran2003.Directive that will
-    be resolved in an upcoming fparser release.
-    """
-    def __init__(self, directive):
-        self.directive = directive
-
-    def tofortran(self):
-        """
-        Return directive with prefix
-        """
-        return "!DIR$ " + self.directive
 
 
 def trans(psyir):
@@ -104,16 +88,14 @@ def trans(psyir):
         # Insert before OpenMP directives to avoid PSyclone errors
         if get_compiler() == "cce":
             for loop in outer_loops[2].walk(Loop)[3:5]:
-                cblock = CodeBlock([CompilerDirective("NOFISSION")],
-                                   CodeBlock.Structure.STATEMENT)
+                dir = UnknownDirective(" NOFISSION", "DIR")
                 insert_at = loop.parent.children.index(loop)
-                loop.parent.children.insert(insert_at, cblock)
+                loop.parent.children.insert(insert_at, dir)
 
         for loop in outer_loops[2].walk(Loop)[13:16]:
-            cblock = CodeBlock([CompilerDirective("IVDEP")],
-                               CodeBlock.Structure.STATEMENT)
+            dir = UnknownDirective(" IVDEP", "DIR")
             insert_at = loop.parent.children.index(loop)
-            loop.parent.children.insert(insert_at, cblock)
+            loop.parent.children.insert(insert_at, dir)
 
         for loop in outer_loops[2].walk(Loop)[2:7]:
             # Check if any eligible variables appear in subroutine
