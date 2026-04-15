@@ -23,8 +23,11 @@ from psyclone.psyir.transformations import (
 from psyclone.transformations import (
     Dynamo0p3ColourTrans, Dynamo0p3OMPLoopTrans,
     Dynamo0p3RedundantComputationTrans,
-    ACCParallelTrans, ACCLoopTrans, ACCRoutineTrans,
-    OMPLoopTrans)
+    ACCParallelTrans, ACCRoutineTrans, OMPLoopTrans)
+try:
+    from psyclone.transformations import ACCLoopTrans
+except ImportError:
+    from psyclone.psyir.transformations import ACCLoopTrans
 from psyclone.domain.common.transformations import KernelModuleInlineTrans
 
 
