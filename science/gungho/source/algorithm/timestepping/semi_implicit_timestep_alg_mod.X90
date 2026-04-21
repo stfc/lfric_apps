@@ -723,6 +723,7 @@ contains
 
     if ( LPROF ) call start_timing( id, 'semi_implicit_timestep' )
 
+    lbc_option = 0
     cast_dt = real(model_clock%get_seconds_per_step(), r_def)
 
     if (limited_area .and. use_wavedynamics) then
@@ -735,8 +736,6 @@ contains
         murk_lbc =  modeldb%config%aerosol%murk_lbc()
       end if
     end if
-    ! Print statements makes NVHPC work?
-    print *, lbc_option, use_physics
     if (lbc_option == lbc_option_um2lfric_file .or. &
         (use_physics .and. cloud == cloud_um)) then
       microphysics_casim = modeldb%config%microphysics%microphysics_casim()
