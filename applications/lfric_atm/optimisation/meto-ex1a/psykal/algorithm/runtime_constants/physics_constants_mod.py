@@ -21,13 +21,16 @@ from psyclone.psyir.transformations import (
     ACCKernelsTrans, TransformationError, OMPTargetTrans,
     OMPDeclareTargetTrans, OMPParallelTrans)
 from psyclone.transformations import (
-    Dynamo0p3ColourTrans, Dynamo0p3OMPLoopTrans,
-    Dynamo0p3RedundantComputationTrans,
+    LFRicColourTrans, LFRicOMPLoopTrans,
     ACCParallelTrans, ACCRoutineTrans, OMPLoopTrans)
 try:
-    from psyclone.transformations import ACCLoopTrans
-except ImportError:
     from psyclone.psyir.transformations import ACCLoopTrans
+    from psyclone.domain.lfric.transformations import (
+        LFRicRedundantComputationTrans)
+except ImportError:
+    # Support for psyclone < 3.3
+    from psyclone.transformations import (
+        ACCLoopTrans, LFRicRedundantComputationTrans)
 from psyclone.domain.common.transformations import KernelModuleInlineTrans
 
 
@@ -59,9 +62,9 @@ def trans(psyir):
 
     '''
     inline_trans = KernelModuleInlineTrans()
-    rtrans = Dynamo0p3RedundantComputationTrans()
-    ctrans = Dynamo0p3ColourTrans()
-    otrans = Dynamo0p3OMPLoopTrans()
+    rtrans = LFRicRedundantComputationTrans()
+    ctrans = LFRicColourTrans()
+    otrans = LFRicOMPLoopTrans()
     const = LFRicConstants()
     cpu_parallel = OMPParallelTrans()
 
