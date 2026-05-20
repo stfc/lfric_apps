@@ -32,8 +32,7 @@ from psyclone.psyir.symbols import (
     RoutineSymbol,
     ImportInterface,
     UnsupportedFortranType,
-    INTEGER_TYPE,
-    CHARACTER_TYPE,
+    ScalarType
 )
 from psyclone.psyir.transformations import OMPParallelTrans
 from psyclone.transformations import (
@@ -469,7 +468,7 @@ def first_priv_red_init(node_target, init_scalars, insert_at_start=False):
             # rather than UnsupportedFortranType
             if isinstance(sym.datatype, UnsupportedFortranType):
                 init = Assignment.create(
-                    Reference(sym), Literal("", CHARACTER_TYPE)
+                    Reference(sym), Literal("", ScalarType.character_type())
                 )
             else:
                 init = Assignment.create(
@@ -603,7 +602,7 @@ def loop_replacement_of(routine_itr,
                 parent = routine_itr
                 assign = Assignment.create(
                     Reference(loop.variable),
-                    Literal("1", INTEGER_TYPE))
+                    Literal("1", ScalarType.integer_type()))
                 parent.children.insert(0, assign)
                 do_once = True
 
