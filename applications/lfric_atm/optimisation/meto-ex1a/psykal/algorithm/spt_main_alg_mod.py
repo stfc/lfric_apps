@@ -26,12 +26,16 @@ from psyclone.transformations import (
 
 try:
     from psyclone.psyir.transformations import ACCLoopTrans
+except ImportError:
+    # Support for psyclone < 3.3
+    from psyclone.transformations import ACCLoopTrans
+try:
     from psyclone.domain.lfric.transformations import (
         LFRicRedundantComputationTrans)
 except ImportError:
     # Support for psyclone < 3.3
     from psyclone.transformations import (
-        ACCLoopTrans, LFRicRedundantComputationTrans)
+        LFRicRedundantComputationTrans)
 from psyclone.domain.common.transformations import KernelModuleInlineTrans
 
 
