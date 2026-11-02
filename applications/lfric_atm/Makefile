@@ -148,7 +148,7 @@ build: ALWAYS
 	$Q$(MAKE) $(QUIET_ARG) -f $(LFRIC_BUILD)/psyclone/psyclone_psykal.mk \
 	          SOURCE_DIR=source
 	$(call MESSAGE,========================================)
-	$(call MESSAGE,Preprocess and PSyclone Transmute)
+	$(call MESSAGE,PSyclone Transmute)
 	$(call MESSAGE,========================================)
 # Note depending on site target requirements, either all source or specific source will be affected
 # See application overrides and files exported there
