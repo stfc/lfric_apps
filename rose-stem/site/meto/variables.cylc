@@ -52,7 +52,7 @@
 
 {% do site_vars.update({"coupled_fcm_make_platform": "azspice"}) %}
 
-{% do site_vars.update({"git_mirror_loc": "/data/users/gitassist/git_mirrors"}) %}
+{% do site_vars.update({"git_mirror_loc": "/data/users/gitassist/git_mirrors/MetOffice"}) %}
 
 {% do site_vars.update({"mesh_build": {"ex1a": "gnu_fast-debug-64bit",
                                        "azspice": "gnu_fast-debug-64bit"} }) %}

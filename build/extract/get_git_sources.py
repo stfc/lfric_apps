@@ -147,10 +147,10 @@ def get_source(
 
     if ".git" in source:
         if use_mirrors:
+            mirror_loc = Path(mirror_loc) / repo
             logger.info(
                 f"[{datetime_str()}] Cloning {repo} from {mirror_loc} at ref {ref}"
             )
-            mirror_loc = Path(mirror_loc) / "MetOffice" / repo
             clone_repo_mirror(source, ref, mirror_loc, dest)
         else:
             logger.info(f"[{datetime_str()}] Cloning {repo} from {source} at ref {ref}")
