@@ -51,7 +51,7 @@ transmute:
 
   boundary_layer/local.py:
     files: /bl_lsp /btq_int /ex_flux_tq /ex_flux_uv /fm_drag   \
-                  /imp_mix /kmkhz_9c_wtrac
+                  /imp_mix /kmkh. /kmkhz_9c_wtrac.
   kernel/local.py:
     files:  "/bl_exp_kernel_mod
              /bl_imp2_kernel_mod
