@@ -51,19 +51,27 @@ transmute:
 
   boundary_layer/local.py:
     files: /bl_lsp /btq_int /ex_flux_tq /ex_flux_uv /fm_drag   \
-                  /imp_mix /kmkh
+                  /imp_mix /kmkhz_9c_wtrac
+  kernel/local.py:
+    files:  "/bl_exp_kernel_mod
+             /bl_imp2_kernel_mod
+             /bl_imp_kernel_mod
+             /bm_kernel_mod
+             /bm_tau_kernel_mod
+             /jules_exp_kernel_mod
+             /jules_extra_kernel_mod
+             /lsp_prognostic_tnuc_kernel_mod
+             /mphys_turb_gen_kernel_mod
+             /pc2_initiation_kernel_mod
+             /smith_kernel_mod
+             /tracer_mix_kernel_mod
+             "
 
   file_specific:
-    files: "boundary_layer/kmkhz_9c_wtrac
-            gravity_wave_drag/gw_ussp_mod
-            kernel/bm_tau_kernel_mod
+    files: "gravity_wave_drag/gw_ussp_mod
             kernel/conv_gr_kernel_mod
-            kernel/jules_exp_kernel_mod
-            kernel/jules_extra_kernel_mod
-            kernel/jules_imp_kernel_mod
             kernel/lw_kernel_mod
             kernel/pc2_conv_coupling_kernel_mod
-            kernel/pc2_initiation_kernel_mod
             kernel/sw_kernel_mod
             kernel/sw_rad_tile_kernel_mod
             large_scale_cloud/pc2_bl_forced_cu
