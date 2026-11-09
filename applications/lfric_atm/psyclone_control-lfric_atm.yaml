@@ -1,0 +1,81 @@
+# This file controls the PSuyclone processing in LFRic. This default
+# script just adds a single DSL phase.
+# First we specify the phases for PSyclone. This allows
+# any apps to run transmute and DSL steps in any order just by
+# changing (or supplying a different) psyclone-info file.
+# In this example, we run a transmute step after the DSL step.
+
+phases:
+  # Define the one DSL phase
+  - dsl
+  - transmute
+
+dsl:
+  comment: "PSylone DSL Phase"
+  api: lfric
+  file_pattern: "*x90"
+  script_dir: cpu/psykal
+
+  # The first two directives reproduce the default PSyclone triggering used
+  # in LFRic:
+
+  # Run optimisation/.../global.py on all x90 files
+  global.py:
+    files: "*"
+
+  # This represents existing functionality: if there is a file-specific .py
+  # file, use it. The specification of '*' does not trigger an error
+  # if there is no file_specific script (while explicitly putting a name
+  # here as shown in the previous pre_dsl phase will trigger an error, to
+  # catch typos early)
+  file_specific:
+    files: "*"
+
+transmute:
+  comment: "PSylone DSL Phase"
+  api:
+  file_pattern: "*f90"
+  script_dir: cpu/transmute
+
+  # By default, don't transmute
+  exclude:
+    files: "*"
+
+  # This represents existing functionality: if there is a file-specific .py
+  # file, use it. The specification of '*' does not trigger an error
+  # if there is no file_specific script (while explicitly putting a name
+  # here as shown in the previous pre_dsl phase will trigger an error, to
+  # catch typos early)
+  global.py:
+    files: mphys_kernel_mod
+
+  boundary_layer/local.py:
+    files: /bl_lsp /btq_int /ex_flux_tq /ex_flux_uv /fm_drag   \
+                  /imp_mix /kmkh
+
+  file_specific:
+    files: "boundary_layer/kmkhz_9c_wtrac
+            gravity_wave_drag/gw_ussp_mod
+            kernel/bm_tau_kernel_mod
+            kernel/conv_gr_kernel_mod
+            kernel/jules_exp_kernel_mod
+            kernel/jules_extra_kernel_mod
+            kernel/jules_imp_kernel_mod
+            kernel/lw_kernel_mod
+            kernel/pc2_conv_coupling_kernel_mod
+            kernel/pc2_initiation_kernel_mod
+            kernel/sw_kernel_mod
+            kernel/sw_rad_tile_kernel_mod
+            large_scale_cloud/pc2_bl_forced_cu
+            large_scale_cloud/pc2_bm_initiate
+            large_scale_cloud/pc2_initiation_ctl
+            core/cop_level/ukca_main1-ukca_main1
+          "
+  science/ukca/src/science/core/aerosols/glomap/ukca_aero_ctl.py:
+    files: core/aerosols/glomap/ukca_aero_ctl
+
+  science/ukca/src/science/core/chemistry/ukca_chemistry_ctl_full_mod.py:
+    files: science/core/chemistry/ukca_chemistry_ctl_full_mod
+
+  no_script:
+    files: ukca_abdulrazzak_ghan
