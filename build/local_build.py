@@ -210,7 +210,7 @@ def main():
 
     # If using mirrors, set environment variable for science extract step
     if args.mirrors:
-        os.environ["USE_MIRRORS"] = args.mirror_loc
+        os.environ["MIRROR_LOC"] = args.mirror_loc
 
     # Find the root directory of the working copy
     root_dir = get_root_path()
