@@ -25,7 +25,7 @@ from psyclone.psyir.nodes import (
 from transmute_psytrans.transmute_functions import (
     OMP_PARALLEL_LOOP_DO_TRANS_STATIC
 )
-from script_options import (
+from script_options_kernel import (
     SCRIPT_OPTIONS_DICT
 )
 
