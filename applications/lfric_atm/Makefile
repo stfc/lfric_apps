@@ -146,7 +146,8 @@ build: ALWAYS
 	$(call MESSAGE,PSycloning $(PROJECT_NAME))
 	$(call MESSAGE,========================================)
 	$Q$(MAKE) $(QUIET_ARG) -f $(LFRIC_BUILD)/psyclone/psyclone_psykal.mk \
-	          SOURCE_DIR=source
+	          SOURCE_DIR=source  \
+	          PSYCLONE_CONTROL_FILE=$(PROJECT_DIR)/psyclone_control-lfric_atm.yaml
 	$(call MESSAGE,=========================================================)
 	$(call MESSAGE,Analysing $(PROJECT) build dependencies)
 	$(call MESSAGE,=========================================================)
