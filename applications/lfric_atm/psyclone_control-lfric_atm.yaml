@@ -47,7 +47,7 @@ transmute:
   # here as shown in the previous pre_dsl phase will trigger an error, to
   # catch typos early)
   global.py:
-    files: mphys_kernel_mod
+    files:
 
   boundary_layer/local.py:
     files: /bl_lsp /btq_int /ex_flux_tq /ex_flux_uv /fm_drag   \
@@ -61,6 +61,7 @@ transmute:
              /jules_exp_kernel_mod
              /jules_extra_kernel_mod
              /lsp_prognostic_tnuc_kernel_mod
+             /mphys_kernel_mod
              /mphys_turb_gen_kernel_mod
              /pc2_initiation_kernel_mod
              /smith_kernel_mod
@@ -70,10 +71,14 @@ transmute:
   file_specific:
     files: "gravity_wave_drag/gw_ussp_mod
             kernel/conv_gr_kernel_mod
+            kernel/jules_imp_kernel_mod
+            kernel/lw_inc_kernel_mod
             kernel/lw_kernel_mod
             kernel/pc2_conv_coupling_kernel_mod
+            kernel/sw_inc_kernel_mod
             kernel/sw_kernel_mod
             kernel/sw_rad_tile_kernel_mod
+            kernel/aerosol_ukca_kernel_mod
             large_scale_cloud/pc2_bl_forced_cu
             large_scale_cloud/pc2_bm_initiate
             large_scale_cloud/pc2_initiation_ctl
